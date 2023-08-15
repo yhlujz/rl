@@ -1,0 +1,5 @@
+*.nii.gz
+*.json
+*.log
+*.pyc
+*.pth
