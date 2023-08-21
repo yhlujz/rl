@@ -34,6 +34,7 @@ class PPO:
                  agent_epochs,
                  batch_size,
                  eps,
+                 entropy_coef,
                  gamma,
                  adv_norm,
                  amp,
@@ -78,6 +79,7 @@ class PPO:
         self.gamma = gamma
         self.lmbda = lmbda
         self.eps = eps  # PPO中截断范围的参数
+        self.entropy_coef = entropy_coef  # 策略熵系数
         self.adv_norm = adv_norm  # 是否使用优势估计标准化
         # 设置训练相关参数
         self.agent_epochs = agent_epochs  # 一条序列的数据用来训练的轮数
@@ -177,11 +179,13 @@ class PPO:
                     td_target_batch = td_target[batch]
                     if self.amp:  # 若采用混合精度训练
                         with torch.cuda.amp.autocast():
-                            log_probs = torch.log(self.actor(states_batch).gather(1, actions_batch))  # 取出对应动作的概率值
+                            probs = self.actor(states_batch)
+                            entropy = -(torch.log(probs) * probs).sum(-1).mean()  # 计算策略熵
+                            log_probs = torch.log(probs.gather(1, actions_batch))  # 取出对应动作的概率值
                             ratio = torch.exp(log_probs - old_log_probs_batch)  # 新旧动作概率的比值
                             surr1 = ratio * advantage_batch
                             surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps)  # 截断
-                            actor_loss = torch.mean(-torch.min(surr1, surr2))  # PPO损失函数
+                            actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
                             critic_loss = torch.mean(F.mse_loss(self.critic(states_batch), td_target_batch.detach()))
 
                         self.actor_optimizer.zero_grad()
@@ -198,11 +202,13 @@ class PPO:
                         self.critic_scaler.step(self.critic_optimizer)
                         self.critic_scaler.update()
                     else:
-                        log_probs = torch.log(self.actor(states_batch).gather(1, actions_batch))  # 取出对应动作的概率值
+                        probs = self.actor(states_batch)
+                        entropy = -(torch.log(probs) * probs).sum(-1).mean()  # 计算策略熵
+                        log_probs = torch.log(probs.gather(1, actions_batch))  # 取出对应动作的概率值
                         ratio = torch.exp(log_probs - old_log_probs_batch)  # 新旧动作概率的比值
                         surr1 = ratio * advantage_batch
                         surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps)  # 截断
-                        actor_loss = torch.mean(-torch.min(surr1, surr2))  # PPO损失函数
+                        actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
                         critic_loss = torch.mean(F.mse_loss(self.critic(states_batch), td_target_batch.detach()))
 
                         self.actor_optimizer.zero_grad()
@@ -218,11 +224,13 @@ class PPO:
                 # 若不采用minibatch更新方式，则整个序列作为一个batch一起更新
                 if self.amp:  # 若采用混合精度训练
                     with torch.cuda.amp.autocast():
-                        log_probs = torch.log(self.actor(states).gather(1, actions))  # 取出对应动作的概率值
+                        probs = self.actor(states)
+                        entropy = -(torch.log(probs) * probs).sum(-1).mean()  # 计算策略熵
+                        log_probs = torch.log(probs.gather(1, actions))  # 取出对应动作的概率值
                         ratio = torch.exp(log_probs - old_log_probs)  # 新旧动作概率的比值
                         surr1 = ratio * advantage
                         surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps)  # 截断
-                        actor_loss = torch.mean(-torch.min(surr1, surr2))  # PPO损失函数
+                        actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
                         critic_loss = torch.mean(F.mse_loss(self.critic(states), td_target.detach()))
 
                     self.actor_optimizer.zero_grad()
@@ -239,11 +247,13 @@ class PPO:
                     self.critic_scaler.step(self.critic_optimizer)
                     self.critic_scaler.update()
                 else:
-                    log_probs = torch.log(self.actor(states).gather(1, actions))  # 取出对应动作的概率值
+                    probs = self.actor(states)
+                    entropy = -(torch.log(probs) * probs).sum(-1).mean()  # 计算策略熵
+                    log_probs = torch.log(probs.gather(1, actions))  # 取出对应动作的概率值
                     ratio = torch.exp(log_probs - old_log_probs)  # 新旧动作概率的比值
                     surr1 = ratio * advantage
                     surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps)  # 截断
-                    actor_loss = torch.mean(-torch.min(surr1, surr2))  # PPO损失函数
+                    actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
                     critic_loss = torch.mean(F.mse_loss(self.critic(states), td_target.detach()))
 
                     self.actor_optimizer.zero_grad()
@@ -530,49 +540,6 @@ def train(train_files,
                     batch_length += episode_length
                     batch_dice += env.compute_dice()
                     agent.update(transition_dict)  # 根据训练出的一条序列进行网络模型的更新
-
-                if val_update:  # 如果需要验证后才更新参数
-                    agent.eval()  # 网络设置为验证模式
-                    val_return = 0  # 记录验证集平均回报
-                    val_length = 0  # 记录验证集平均序列长度
-                    val_dice = 0  # 记录验证集平均dice
-                    with torch.no_grad():
-                        for val_data in val_loader:
-                            images, masks = (
-                                val_data["image"].to(device),
-                                val_data["mask"].to(device),
-                            )
-                            env = CTEnv(images[0],
-                                        masks[0],
-                                        state_size,
-                                        step_max,
-                                        step_limit_max,
-                                        state_mode,
-                                        reward_mode,
-                                        out_mode,
-                                        out_reward_mode)  # 初始化环境
-                            state = env.reset()
-                            done = False
-                            while not done:
-                                action = agent.take_certain_action(state)
-                                next_state, reward, done = env.step(action)
-                                state = next_state
-                                val_return += reward
-                                val_length += 1
-                            val_dice += env.compute_dice()
-                        val_return /= n_val  # 计算验证集平均回报
-                        val_length /= n_val  # 计算验证集平均序列长度
-                        val_dice /= n_val  # 计算验证集平均dice
-                        # 保存模型
-                        if val_dice > best_dice:
-                            best_dice = val_dice
-                            best_dice_epoch = epoch + 1
-                            agent.save_model()
-                            agent.real_to_temp()
-                        else:
-                            agent.temp_to_real()
-                    agent.train()
-
                 pbar.update(1)   # 进度条更新
                 batch_return /= num_episodes
                 batch_length /= num_episodes
@@ -594,39 +561,47 @@ def train(train_files,
         print(f"epoch {epoch + 1} return: {epoch_return} length: {epoch_length} dice: {epoch_dice}")
 
         # 验证及保存模型
-        if not val_update:
-            agent.eval()  # 网络设置为验证模式
-            val_return = 0  # 记录验证集平均回报
-            val_length = 0  # 记录验证集平均序列长度
-            val_dice = 0  # 记录验证集平均dice
-            with torch.no_grad():
-                for val_data in tqdm(val_loader, total=n_val, desc='Validation round', unit='batch'):
-                    images, masks = (
-                        val_data["image"].to(device),
-                        val_data["mask"].to(device),
-                    )
-                    env = CTEnv(images[0],
-                                masks[0],
-                                state_size,
-                                step_max,
-                                step_limit_max,
-                                state_mode,
-                                reward_mode,
-                                out_mode,
-                                out_reward_mode)  # 初始化环境
-                    state = env.reset()
-                    done = False
-                    while not done:
-                        action = agent.take_certain_action(state)
-                        next_state, reward, done = env.step(action)
-                        state = next_state
-                        val_return += reward
-                        val_length += 1
-                    val_dice += env.compute_dice()
-                val_return /= n_val  # 计算验证集平均回报
-                val_length /= n_val  # 计算验证集平均序列长度
-                val_dice /= n_val  # 计算验证集平均dice
-                # 保存模型
+        agent.eval()  # 网络设置为验证模式
+        val_return = 0  # 记录验证集平均回报
+        val_length = 0  # 记录验证集平均序列长度
+        val_dice = 0  # 记录验证集平均dice
+        with torch.no_grad():
+            for val_data in val_loader:
+                images, masks = (
+                    val_data["image"].to(device),
+                    val_data["mask"].to(device),
+                )
+                env = CTEnv(images[0],
+                            masks[0],
+                            state_size,
+                            step_max,
+                            step_limit_max,
+                            state_mode,
+                            reward_mode,
+                            out_mode,
+                            out_reward_mode)  # 初始化环境
+                state = env.reset()
+                done = False
+                while not done:
+                    action = agent.take_certain_action(state)
+                    next_state, reward, done = env.step(action)
+                    state = next_state
+                    val_return += reward
+                    val_length += 1
+                val_dice += env.compute_dice()
+            val_return /= n_val  # 计算验证集平均回报
+            val_length /= n_val  # 计算验证集平均序列长度
+            val_dice /= n_val  # 计算验证集平均dice
+            # 保存模型
+            if val_update:  # 如果需要验证后才更新参数
+                if val_dice > best_dice:
+                    best_dice = val_dice
+                    best_dice_epoch = epoch + 1
+                    agent.save_model()
+                    agent.real_to_temp()
+                else:
+                    agent.temp_to_real()
+            else:
                 if val_dice > best_dice:
                     best_dice = val_dice
                     best_dice_epoch = epoch + 1
@@ -703,6 +678,7 @@ if __name__ == '__main__':
     agent_epochs = 10  # 每个序列梯度下降迭代次数
     batch_size = 0  # 若使用minibatch方式进行更新，则需设置为非0值
     eps = 0.2  # ppo算法限制值
+    entropy_coef = 0.01  # 策略熵系数，可设置为0
     state_size = [21, 21, 9]  # 状态图大小
     epochs = 500  # 总循环次数
     num_workers = 0  # 数据加载线程数
@@ -725,7 +701,7 @@ if __name__ == '__main__':
     optimizer = {optimizer}  adam_eps = {adam_eps}
     agent_epochs = {agent_epochs}
     batch_size = {batch_size}
-    adv_norm = {adv_norm}
+    adv_norm = {adv_norm}  entropy_coef = {entropy_coef}
     amp = {amp}
     step_max = {step_max}  step_limit_max = {step_limit_max}
     num_episodes = {num_episodes}
@@ -745,6 +721,7 @@ if __name__ == '__main__':
                 agent_epochs=agent_epochs,
                 batch_size=batch_size,
                 eps=eps,
+                entropy_coef=entropy_coef,
                 gamma=gamma,
                 adv_norm=adv_norm,
                 amp=amp,
