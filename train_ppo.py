@@ -18,7 +18,58 @@ from monai.transforms import (
 )
 from monai.data import CacheDataset, DataLoader
 
-from yunet import ValueNet, PolicyNet
+
+class RunningMeanStd:
+    """动态计算mean和std"""
+    def __init__(self, shape):  # shape:the dimension of input data
+        self.n = 0
+        self.mean = np.zeros(shape)
+        self.S = np.zeros(shape)
+        self.std = np.sqrt(self.S)
+
+    def update(self, x):
+        x = np.array(x)
+        self.n += 1
+        if self.n == 1:
+            self.mean = x
+            self.std = x
+        else:
+            old_mean = self.mean.copy()
+            self.mean = old_mean + (x - old_mean) / self.n
+            self.S = self.S + (x - old_mean) * (x - self.mean)
+            self.std = np.sqrt(self.S / self.n)
+
+
+class Normalization:
+    """状态标准化"""
+    def __init__(self, shape):
+        self.running_ms = RunningMeanStd(shape=shape)
+
+    def __call__(self, x, update=True):
+        # Whether to update the mean and std,during the evaluating,update=Flase
+        if update:
+            self.running_ms.update(x)
+        x = (x - self.running_ms.mean) / (self.running_ms.std + 1e-8)
+
+        return x
+
+
+class RewardScaling:
+    """奖励标准化"""
+    def __init__(self, shape, gamma):
+        self.shape = shape  # reward shape=1
+        self.gamma = gamma  # discount factor
+        self.running_ms = RunningMeanStd(shape=self.shape)
+        self.R = np.zeros(self.shape)
+
+    def __call__(self, x):
+        self.R = self.gamma * self.R + x
+        self.running_ms.update(self.R)
+        x = x / (self.running_ms.std + 1e-8)  # Only divided std
+        return x
+
+    def reset(self):  # When an episode is done,we should reset 'self.R'
+        self.R = np.zeros(self.shape)
 
 
 class PPO:
@@ -129,7 +180,7 @@ class PPO:
             return torch.tensor(np.array(advantage_list), dtype=torch.float)
 
     def take_action(self, state):
-        """根据策略网络采样动作，用于训练"""
+        """根据策略网络采样动作，一般用于训练"""
         state = torch.tensor(np.array([state]), dtype=torch.float).to(self.device)  # 增加一个batch维度
         if self.amp:  # 若采用混合精度训练
             with torch.cuda.amp.autocast():
@@ -139,7 +190,7 @@ class PPO:
         return action.item()
 
     def take_certain_action(self, state):
-        """根据策略网络确定动作，用于验证和测试"""
+        """根据策略网络确定动作，一般用于验证和测试"""
         state = torch.tensor(np.array([state]), dtype=torch.float).to(self.device)  # 增加一个batch维度
         if self.amp:  # 若采用混合精度训练
             with torch.cuda.amp.autocast():
@@ -364,9 +415,11 @@ class CTEnv:
         change = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
         self.spot = [x + y for x, y in zip(self.spot, change[action])]  # 将动作叠加到位置
         self.step_n += 1  # 步数累积
-        done = False
+        done = False  # 默认为未完成
+        is_new = True  # 默认为新标注
         # 如果超出边界
         if self.spot_is_out():
+            is_new = False  # 标记为非新标注
             if self.out_mode:
                 done = True
             next_state = self.spot_to_state()  # 超出边界时状态图不移动
@@ -377,8 +430,12 @@ class CTEnv:
                 reward = -1  # 超出边界时奖励为-1
             elif self.out_reward_mode == 'large':
                 reward = -100  # 超出边界时奖励为-100
+            elif self.out_reward_mode == '0':
+                reward = 0  # 超出边界时奖励为0
         # 未超出边界时
         else:
+            if self.pred_padding[tuple(self.spot)] == 1:
+                is_new = False  # 标记为非新标注
             if self.state_mode == 'post':
                 next_state = self.spot_to_state()  # post模式先返回状态后标注
             # 根据不同模式计算reward
@@ -399,10 +456,10 @@ class CTEnv:
             if self.state_mode == 'pre':
                 next_state = self.spot_to_state()  # pre模式先标注后返回状态
         # 判断是否达到步数限制条件
-        if reward <= 0:
-            self.step_limit_n += 1  # 无新标注步数累积
-        else:
+        if is_new:
             self.step_limit_n = 0  # 清空无新标注步数
+        else:
+            self.step_limit_n += 1  # 无新标注步数累积
         if self.step_limit_n >= self.step_limit_max:
             done = True
         if self.step_n >= self.step_max:
@@ -455,6 +512,8 @@ def train(train_files,
           val_files,
           agent,
           state_size,
+          norm_method,
+          norm_range,
           device,
           epochs,
           num_workers,
@@ -465,18 +524,30 @@ def train(train_files,
           reward_mode,
           out_mode,
           out_reward_mode,
+          train_certain,
+          val_certain,
           val_update,
           ):
     """训练"""
 
     # 定义图像前处理规则
-    transforms = Compose(
-        [
-            LoadImaged(keys=["image", "mask"]),   # 载入图像
-            ScaleIntensityRanged(keys=["image"], a_min=-135, a_max=215, b_min=0.0, b_max=1.0, clip=True),  # 设置窗宽窗位
-            EnsureTyped(keys=["image", "mask"])   # 转换为tensor
-        ]
-    )
+    if norm_method == 'min_max':
+        transforms = Compose(
+            [
+                LoadImaged(keys=["image", "mask"]),   # 载入图像
+                ScaleIntensityRanged(keys=["image"], a_min=-135, a_max=215,
+                                     b_min=norm_range[0], b_max=norm_range[1],
+                                     clip=True),  # 归一化
+                EnsureTyped(keys=["image", "mask"])   # 转换为tensor
+            ]
+        )
+    else:
+        transforms = Compose(
+            [
+                LoadImaged(keys=["image", "mask"]),   # 载入图像
+                EnsureTyped(keys=["image", "mask"])   # 转换为tensor
+            ]
+        )
 
     # 创建数据集并加载数据
     train_ds = CacheDataset(data=train_files, transform=transforms, cache_rate=1.0, num_workers=num_workers)
@@ -526,6 +597,10 @@ def train(train_files,
                     state = env.reset()  # 每个序列训练前先进行初始化操作（设置随机起点）
                     done = False
                     while not done:
+                        if train_certain:  # 采用确定性训练策略
+                            action = agent.take_certain_action(state)
+                        else:
+                            action = agent.take_action(state)
                         action = agent.take_action(state)
                         next_state, reward, done = env.step(action)
                         transition_dict['states'].append(state)
@@ -583,7 +658,10 @@ def train(train_files,
                 state = env.reset()
                 done = False
                 while not done:
-                    action = agent.take_certain_action(state)
+                    if val_certain:  # 采用确定性验证策略
+                        action = agent.take_certain_action(state)
+                    else:
+                        action = agent.take_action(state)
                     next_state, reward, done = env.step(action)
                     state = next_state
                     val_return += reward
@@ -616,6 +694,15 @@ def train(train_files,
 
 
 if __name__ == '__main__':
+    """网络选择"""
+    net_name = 'unet2'  # 可选：unet, unet2
+    if net_name == 'unet':
+        from yunet import ValueUNet as ValueNet, PolicyUNet as PolicyNet
+    elif net_name == 'unet2':
+        from yunet import ValueUNet2 as ValueNet, PolicyUNet2 as PolicyNet
+    else:
+        print('error: the net is not exist!')
+
     """固定随机种子"""
     set_determinism(seed=0)
 
@@ -679,21 +766,26 @@ if __name__ == '__main__':
     batch_size = 0  # 若使用minibatch方式进行更新，则需设置为非0值
     eps = 0.2  # ppo算法限制值
     entropy_coef = 0.01  # 策略熵系数，可设置为0
-    state_size = [21, 21, 9]  # 状态图大小
+    state_size = [27, 27, 9]  # 状态图大小
+    norm_method = 'min_max'  # 归一化方法，可选：min_max
+    norm_range = [-1, 1]  # 归一化数值，代表min_max或mean_std
     epochs = 500  # 总循环次数
     num_workers = 0  # 数据加载线程数
     step_max = 5000  # 序列最大长度
-    step_limit_max = 500  # 序列无正面奖励限制长度
+    step_limit_max = 500  # 序列重复标注最大长度
     num_episodes = 1  # 每条序列训练次数
     state_mode = 'pre'  # 状态模式，可选：pre(先标注再返回状态), post(返回状态后再标注)
     reward_mode = 'dice_inc'  # 奖励模式，可选：dice_inc, const
-    out_mode = True  # 出边界是否停止，True则停止
-    out_reward_mode = 'small'  # 出边界奖励模式，可选：small, large, step
+    out_mode = False  # 出边界是否停止，True则停止
+    out_reward_mode = 'small'  # 出边界奖励模式，可选：small, large, step，0
     total_steps = epochs * len(train_files) * num_episodes * agent_epochs  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
+    train_certain = False  # 是否在训练时采用确定性策略，False代表采用随机采样策略
+    val_certain = True  # 是否在验证时采用确定性策略，False代表采用随机采样策略
     val_update = False  # 是否经过验证集后才真正更新网络参数
 
     """记录参数信息"""
     logging.info(f'''
+    net_name = {net_name}
     json_path = {json_path}
     GPU_id = {GPU_id}
     actor_lr = {actor_lr}  critic_lr = {critic_lr}
@@ -705,10 +797,13 @@ if __name__ == '__main__':
     amp = {amp}
     step_max = {step_max}  step_limit_max = {step_limit_max}
     num_episodes = {num_episodes}
+    state_size = {state_size}
+    norm_method = {norm_method}  norm_range = {norm_range}
     state_mode = {state_mode}
     reward_mode = {reward_mode}
     out_mode = {out_mode}  out_reward_mode = {out_reward_mode}
-    val_update = {val_update}''')
+    train_certain = {train_certain}
+    val_certain = {val_certain}  val_update = {val_update}''')
 
     """初始化agent"""
     agent = PPO(actor_lr=actor_lr,
@@ -736,6 +831,8 @@ if __name__ == '__main__':
           val_files=val_files,
           agent=agent,
           state_size=state_size,
+          norm_method=norm_method,
+          norm_range=norm_range,
           device=device,
           epochs=epochs,
           num_workers=num_workers,
@@ -746,5 +843,7 @@ if __name__ == '__main__':
           reward_mode=reward_mode,
           out_mode=out_mode,
           out_reward_mode=out_reward_mode,
+          train_certain=train_certain,
+          val_certain=val_certain,
           val_update=val_update,
           )
