@@ -41,12 +41,12 @@ class Down(nn.Module):
 
 
 class PolicyUNet2(nn.Module):
-    """策略网络：输入27X27X9X2的状态，输出6个动作的概率"""
+    """策略网络：输入27X27X9X3的状态，输出6个动作的概率"""
 
     def __init__(self):
         super().__init__()
 
-        self.inc = DoubleConv(2, 8)
+        self.inc = DoubleConv(3, 8)
         self.down1 = Down(8, 16)
         self.down2 = Down(16, 32)
         self.fc1 = nn.Linear(288, 128)
@@ -71,12 +71,12 @@ class PolicyUNet2(nn.Module):
 
 
 class ValueUNet2(nn.Module):
-    """价值网络：输入27X27X9X2的状态，输出1个当前状态的价值"""
+    """价值网络：输入27X27X9X3的状态，输出1个当前状态的价值"""
 
     def __init__(self):
         super().__init__()
 
-        self.inc = DoubleConv(2, 8)
+        self.inc = DoubleConv(3, 8)
         self.down1 = Down(8, 16)
         self.down2 = Down(16, 32)
         self.fc1 = nn.Linear(288, 128)

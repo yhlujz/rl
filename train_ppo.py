@@ -15,6 +15,9 @@ from monai.transforms import (
     LoadImaged,
     ScaleIntensityRanged,
     EnsureTyped,
+    ThresholdIntensityd,
+    NormalizeIntensityd,
+    Orientationd,
 )
 from monai.data import CacheDataset, DataLoader
 
@@ -203,7 +206,7 @@ class PPO:
         states = torch.tensor(np.array(transition_dict['states']),
                               dtype=torch.float).to(self.device)
         actions = torch.tensor(transition_dict['actions']).view(-1, 1).to(self.device)
-        rewards = torch.tensor(transition_dict['rewards'],
+        rewards = torch.tensor(np.array(transition_dict['rewards']),
                                dtype=torch.float).view(-1, 1).to(self.device)
         next_states = torch.tensor(np.array(transition_dict['next_states']),
                                    dtype=torch.float).to(self.device)
@@ -342,6 +345,8 @@ class CTEnv:
     def __init__(self,
                  image,
                  mask,
+                 pred,
+                 prob,
                  state_size,
                  step_max,
                  step_limit_max,
@@ -352,6 +357,9 @@ class CTEnv:
                  ):
         self.image = image  # 初始化image
         self.mask = mask.int()  # 初始化mask
+        self.preded = pred.int()  # 初始化已预测图像
+        self.prob = prob  # 初始化概率图
+
         self.state_size = state_size  # 初始化状态图大小
         self.step_max = step_max  # 限制最大步数
         self.step_limit_max = step_limit_max  # 限制无新标注的探索步数
@@ -362,8 +370,10 @@ class CTEnv:
 
         self.step_n = 0  # 初始步数
         self.step_limit_n = 0  # 初始无新标注步数
+        self.dice = 0  # 初始化dice值
+        self.cover = 0  # 初始化cover值
 
-        # 根据状态图大小对原图像和标注图像进行padding
+        # 根据状态图大小对原图像、标注图像、已预测图像和概率图进行padding
         self.pad_length = int((self.state_size[0] - 1) / 2)
         self.pad_width = int((self.state_size[1] - 1) / 2)
         self.pad_depth = int((self.state_size[2] - 1) / 2)
@@ -372,6 +382,8 @@ class CTEnv:
                     self.pad_length, self.pad_length)
         self.image_padding = F.pad(self.image, pad_size, 'constant', 0)
         self.mask_padding = F.pad(self.mask, pad_size, 'constant', 0)
+        self.preded_padding = F.pad(self.preded, pad_size, 'constant', 0)
+        self.prob_padding = F.pad(self.prob, pad_size, 'constant', 0)
 
         # 创建与标注大小相同的预测图
         self.pred_padding = torch.zeros_like(self.mask_padding).int()
@@ -393,6 +405,8 @@ class CTEnv:
         self.pred_padding[tuple(self.spot)] = 1
         if self.state_mode == 'pre':
             next_state = self.spot_to_state()  # pre模式先标注后返回状态
+        self.dice = self.compute_dice()
+        self.cover = self.pred_cover()
         return next_state  # 返回下一个状态图
 
     def spot_to_state(self):
@@ -404,10 +418,11 @@ class CTEnv:
         d_side = self.spot[1] + self.pad_width + 1  # 状态图下边界
         f_side = self.spot[2] - self.pad_depth  # 状态图前边界
         b_side = self.spot[2] + self.pad_depth + 1  # 状态图后边界
-        # 分别获取原图像的状态图和预测图像的状态图并融合
+        # 取状态图并融合
         image_state = self.image_padding[l_side:r_side, u_side:d_side, f_side:b_side]
         pred_state = self.pred_padding[l_side:r_side, u_side:d_side, f_side:b_side]
-        state = torch.stack((image_state, pred_state), dim=0)
+        prob_state = self.prob_padding[l_side:r_side, u_side:d_side, f_side:b_side]
+        state = torch.stack((image_state, prob_state, pred_state), dim=0)
         return np.array(state.cpu())  # 将状态图转换为numpy格式
 
     def step(self, action):
@@ -416,10 +431,8 @@ class CTEnv:
         self.spot = [x + y for x, y in zip(self.spot, change[action])]  # 将动作叠加到位置
         self.step_n += 1  # 步数累积
         done = False  # 默认为未完成
-        is_new = True  # 默认为新标注
         # 如果超出边界
         if self.spot_is_out():
-            is_new = False  # 标记为非新标注
             if self.out_mode:
                 done = True
             next_state = self.spot_to_state()  # 超出边界时状态图不移动
@@ -434,32 +447,30 @@ class CTEnv:
                 reward = 0  # 超出边界时奖励为0
         # 未超出边界时
         else:
-            if self.pred_padding[tuple(self.spot)] == 1:
-                is_new = False  # 标记为非新标注
             if self.state_mode == 'post':
                 next_state = self.spot_to_state()  # post模式先返回状态后标注
             # 根据不同模式计算reward
             if self.reward_mode == 'const':
                 # 计算reward
                 reward = self.spot_to_const_reward()
-                # 在预测图像中记录标注路径
-                self.pred_padding[tuple(self.spot)] = 1
-            elif self.reward_mode == 'dice_inc':
-                # 计算上一个状态的dice值
-                dice_old = self.compute_dice()
-                # 在预测图像中记录标注路径
-                self.pred_padding[tuple(self.spot)] = 1
-                # 计算下个状态的dice值及增量
-                dice_new = self.compute_dice()
-                dice_inc = dice_new - dice_old
+            # 在预测图像中记录标注路径
+            self.pred_padding[tuple(self.spot)] = 1
+            dice_new = self.compute_dice()
+            if self.reward_mode == 'dice_inc':
+                # 计算dice值增量
+                dice_inc = dice_new - self.dice
                 reward = dice_inc * 100  # 奖励为dice值增量的100倍
+            self.dice = dice_new
             if self.state_mode == 'pre':
                 next_state = self.spot_to_state()  # pre模式先标注后返回状态
+        cover_new = self.pred_cover()
+        cover_inc = cover_new - self.cover
+        self.cover = cover_new
         # 判断是否达到步数限制条件
-        if is_new:
-            self.step_limit_n = 0  # 清空无新标注步数
+        if cover_inc > 0:
+            self.step_limit_n = 0  # 清空无新标注覆盖步数
         else:
-            self.step_limit_n += 1  # 无新标注步数累积
+            self.step_limit_n += 1  # 无新标注覆盖步数累积
         if self.step_limit_n >= self.step_limit_max:
             done = True
         if self.step_n >= self.step_max:
@@ -497,6 +508,10 @@ class CTEnv:
         return (2 * (self.pred_padding & self.mask_padding).sum() /
                 (self.pred_padding.sum() + self.mask_padding.sum())).item()
 
+    def pred_cover(self):
+        """计算当前预测图像对已预测图像的覆盖值"""
+        return (self.pred_padding & self.preded_padding).sum()
+
     def spot_to_const_reward(self):
         """reward模式为const时，通过当前spot得到对应的reward"""
         if self.pred_padding[tuple(self.spot)] == 1:  # 重复时奖励为0
@@ -513,8 +528,9 @@ def train(train_files,
           agent,
           state_size,
           norm_method,
-          norm_range,
-          device,
+          state_norm,
+          reward_norm,
+          gamma,
           epochs,
           num_workers,
           step_max,
@@ -527,6 +543,7 @@ def train(train_files,
           train_certain,
           val_certain,
           val_update,
+          device,
           ):
     """训练"""
 
@@ -534,18 +551,31 @@ def train(train_files,
     if norm_method == 'min_max':
         transforms = Compose(
             [
-                LoadImaged(keys=["image", "mask"]),   # 载入图像
+                LoadImaged(keys=["image", "mask", "pred"]),   # 载入图像
+                LoadImaged(keys=["prob"],
+                           reader="NumpyReader",
+                           npz_keys='probabilities'),
+                Orientationd(keys=["prob"], axcodes="SAR"),
                 ScaleIntensityRanged(keys=["image"], a_min=-135, a_max=215,
-                                     b_min=norm_range[0], b_max=norm_range[1],
+                                     b_min=0, b_max=1,
                                      clip=True),  # 归一化
-                EnsureTyped(keys=["image", "mask"])   # 转换为tensor
+                EnsureTyped(keys=["image", "mask", "pred", "prob"])   # 转换为tensor
             ]
         )
-    else:
+    elif norm_method == 'norm':
         transforms = Compose(
             [
-                LoadImaged(keys=["image", "mask"]),   # 载入图像
-                EnsureTyped(keys=["image", "mask"])   # 转换为tensor
+                LoadImaged(keys=["image", "mask", "pred"]),   # 载入图像
+                LoadImaged(keys=["prob"],
+                           reader="NumpyReader",
+                           npz_keys='probabilities'),
+                Orientationd(keys=["prob"], axcodes="SAR"),
+                ThresholdIntensityd(keys=["image"], threshold=72, above=True, cval=72),
+                ThresholdIntensityd(keys=["image"], threshold=397, above=False, cval=397),
+                NormalizeIntensityd(keys=["image"],
+                                    subtrahend=226.2353057861328,
+                                    divisor=62.27060317993164),
+                EnsureTyped(keys=["image", "mask", "pred", "prob"])   # 转换为tensor
             ]
         )
 
@@ -566,6 +596,10 @@ def train(train_files,
     # 记录得到最佳评价指标的轮次
     best_dice_epoch = -1
 
+    # 初始化状态和奖励的标准化方法
+    state_normalizer = Normalization(state_size)
+    reward_normalizer = RewardScaling(1, gamma)
+
     # 开始训练
     for epoch in range(max_epochs):
         agent.train()  # 网络设置为训练模式
@@ -577,12 +611,16 @@ def train(train_files,
                 batch_return = 0  # 记录一个batch训练平均回报
                 batch_length = 0  # 记录一个batch训练平均序列长度
                 batch_dice = 0  # 记录一个batch训练平均dice
-                images, masks = (
+                images, masks, preds, probs = (
                     batch_data["image"].to(device),
                     batch_data["mask"].to(device),
+                    batch_data["pred"].to(device),
+                    batch_data["prob"].to(device),
                 )
                 env = CTEnv(images[0],
                             masks[0],
+                            preds[0],
+                            probs[0][1],
                             state_size,
                             step_max,
                             step_limit_max,
@@ -595,14 +633,19 @@ def train(train_files,
                     episode_length = 0  # 记录一个序列的总长度
                     transition_dict = {'states': [], 'actions': [], 'next_states': [], 'rewards': [], 'dones': []}
                     state = env.reset()  # 每个序列训练前先进行初始化操作（设置随机起点）
+                    reward_normalizer.reset()  # 每个序列初始化奖励标准化方法
                     done = False
                     while not done:
+                        if state_norm:  # 采用状态标准化
+                            state = state_normalizer(state)
                         if train_certain:  # 采用确定性训练策略
                             action = agent.take_certain_action(state)
                         else:
                             action = agent.take_action(state)
                         action = agent.take_action(state)
                         next_state, reward, done = env.step(action)
+                        if reward_norm:  # 采用奖励标准化
+                            reward = reward_normalizer(reward)
                         transition_dict['states'].append(state)
                         transition_dict['actions'].append(action)
                         transition_dict['next_states'].append(next_state)
@@ -613,7 +656,7 @@ def train(train_files,
                         episode_length += 1
                     batch_return += episode_return
                     batch_length += episode_length
-                    batch_dice += env.compute_dice()
+                    batch_dice += env.dice
                     agent.update(transition_dict)  # 根据训练出的一条序列进行网络模型的更新
                 pbar.update(1)   # 进度条更新
                 batch_return /= num_episodes
@@ -642,12 +685,16 @@ def train(train_files,
         val_dice = 0  # 记录验证集平均dice
         with torch.no_grad():
             for val_data in val_loader:
-                images, masks = (
+                images, masks, preds, probs = (
                     val_data["image"].to(device),
                     val_data["mask"].to(device),
+                    val_data["pred"].to(device),
+                    val_data["prob"].to(device),
                 )
                 env = CTEnv(images[0],
                             masks[0],
+                            preds[0],
+                            probs[0][1],
                             state_size,
                             step_max,
                             step_limit_max,
@@ -658,6 +705,8 @@ def train(train_files,
                 state = env.reset()
                 done = False
                 while not done:
+                    if state_norm:  # 验证时采用状态标准化
+                        state = state_normalizer(state, update=False)
                     if val_certain:  # 采用确定性验证策略
                         action = agent.take_certain_action(state)
                     else:
@@ -666,7 +715,7 @@ def train(train_files,
                     state = next_state
                     val_return += reward
                     val_length += 1
-                val_dice += env.compute_dice()
+                val_dice += env.dice
             val_return /= n_val  # 计算验证集平均回报
             val_length /= n_val  # 计算验证集平均序列长度
             val_dice /= n_val  # 计算验证集平均dice
@@ -695,7 +744,7 @@ def train(train_files,
 
 if __name__ == '__main__':
     """网络选择"""
-    net_name = 'unet2'  # 可选：unet, unet2
+    net_name = 'unet'  # 可选：unet, unet2
     if net_name == 'unet':
         from yunet import ValueUNet as ValueNet, PolicyUNet as PolicyNet
     elif net_name == 'unet2':
@@ -707,7 +756,7 @@ if __name__ == '__main__':
     set_determinism(seed=0)
 
     """数据json路径"""
-    json_path = '/workspace/data/rl/json/rl6.json'
+    json_path = '/workspace/data/rl/json/rl6_new.json'
 
     """训练编号"""
     id = '0'
@@ -731,15 +780,21 @@ if __name__ == '__main__':
     """读取json获取所有图像文件名"""
     train_images = []
     train_masks = []
+    train_preds = []
+    train_probs = []
     df = pd.read_json(json_path)
-    for index, row in tqdm(df.iterrows()):
+    for _, row in tqdm(df.iterrows()):
         if row['dataset'] == 'train':
             train_images.append(row['image_path'])
             train_masks.append(row['mask_path'])
+            train_preds.append(row['pred_path'])
+            train_probs.append(row['prob_path'])
 
     """制作文件名字典（以便后面使用字典制作数据集）"""
-    data_dicts = [{"image": image_name, "mask": mask_name}
-                  for image_name, mask_name in zip(train_images, train_masks)]
+    data_dicts = [{"image": image_name, "mask": mask_name,
+                   "pred": pred_name, "prob": prob_name}
+                  for image_name, mask_name, pred_name, prob_name
+                  in zip(train_images, train_masks, train_preds, train_probs)]
 
     """划分得到训练集字典和验证集字典"""
     val_len = round(len(df) / 10)
@@ -761,14 +816,15 @@ if __name__ == '__main__':
     gamma = 0.98  # 价值估计倍率
     lmbda = 0.95  # 优势估计倍率
     adv_norm = True  # 是否进行优势估计标准化
+    state_norm = False  # 是否使用状态标准化
+    reward_norm = False  # 是否使用奖励标准化
     amp = True  # 是否使用混合精度训练和推断加速
     agent_epochs = 10  # 每个序列梯度下降迭代次数
     batch_size = 0  # 若使用minibatch方式进行更新，则需设置为非0值
     eps = 0.2  # ppo算法限制值
     entropy_coef = 0.01  # 策略熵系数，可设置为0
-    state_size = [27, 27, 9]  # 状态图大小
-    norm_method = 'min_max'  # 归一化方法，可选：min_max
-    norm_range = [-1, 1]  # 归一化数值，代表min_max或mean_std
+    state_size = [21, 21, 9]  # 状态图大小
+    norm_method = 'norm'  # 归一化方法，可选：min_max, norm
     epochs = 500  # 总循环次数
     num_workers = 0  # 数据加载线程数
     step_max = 5000  # 序列最大长度
@@ -780,7 +836,7 @@ if __name__ == '__main__':
     out_reward_mode = 'small'  # 出边界奖励模式，可选：small, large, step，0
     total_steps = epochs * len(train_files) * num_episodes * agent_epochs  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
     train_certain = False  # 是否在训练时采用确定性策略，False代表采用随机采样策略
-    val_certain = True  # 是否在验证时采用确定性策略，False代表采用随机采样策略
+    val_certain = False  # 是否在验证时采用确定性策略，False代表采用随机采样策略
     val_update = False  # 是否经过验证集后才真正更新网络参数
 
     """记录参数信息"""
@@ -798,9 +854,9 @@ if __name__ == '__main__':
     step_max = {step_max}  step_limit_max = {step_limit_max}
     num_episodes = {num_episodes}
     state_size = {state_size}
-    norm_method = {norm_method}  norm_range = {norm_range}
-    state_mode = {state_mode}
-    reward_mode = {reward_mode}
+    norm_method = {norm_method}
+    state_mode = {state_mode}  state_norm = {state_norm}
+    reward_mode = {reward_mode}  reward_norm = {reward_norm}
     out_mode = {out_mode}  out_reward_mode = {out_reward_mode}
     train_certain = {train_certain}
     val_certain = {val_certain}  val_update = {val_update}''')
@@ -832,8 +888,9 @@ if __name__ == '__main__':
           agent=agent,
           state_size=state_size,
           norm_method=norm_method,
-          norm_range=norm_range,
-          device=device,
+          state_norm=state_norm,
+          reward_norm=reward_norm,
+          gamma=gamma,
           epochs=epochs,
           num_workers=num_workers,
           step_max=step_max,
@@ -846,4 +903,5 @@ if __name__ == '__main__':
           train_certain=train_certain,
           val_certain=val_certain,
           val_update=val_update,
+          device=device,
           )

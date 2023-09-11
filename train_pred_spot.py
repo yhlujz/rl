@@ -31,10 +31,10 @@ def train(net,
     # 定义训练集数据变换规则
     train_transforms = Compose(
         [
-            LoadImaged(keys=["image", "label"]),   #载入图像
-            EnsureChannelFirstd(keys=["image"]),  #添加通道维
-            ScaleIntensityRanged(keys=["image"], a_min=-135, a_max=215, b_min=0.0, b_max=1.0, clip=True),  #设置窗宽窗位
-            EnsureTyped(keys=["image", "label"])     #转换为tensor
+            LoadImaged(keys=["image", "label"]),  # 载入图像
+            EnsureChannelFirstd(keys=["image"]),  # 添加通道维
+            ScaleIntensityRanged(keys=["image"], a_min=-135, a_max=215, b_min=0.0, b_max=1.0, clip=True),  # 设置窗宽窗位
+            EnsureTyped(keys=["image", "label"])  # 转换为tensor
         ]
     )
 
@@ -114,12 +114,12 @@ def train(net,
                 scaler.step(optimizer)
                 scaler.update()
 
-                pbar.update(1)   # 进度条更新
+                pbar.update(1)  # 进度条更新
                 step += 1
 
-                epoch_loss += loss.item()   # 记录每个epoch总损失
+                epoch_loss += loss.item()  # 记录每个epoch总损失
 
-                pbar.set_postfix(**{'loss (batch)': loss.item()})      #设置进度条后缀为每个batch的loss
+                pbar.set_postfix(**{'loss (batch)': loss.item()})  # 设置进度条后缀为每个batch的loss
 
         epoch_loss /= step
         logging.info(f''''
