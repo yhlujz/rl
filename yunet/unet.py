@@ -46,9 +46,9 @@ class PolicyUNet(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.inc = DoubleConv(3, 8)
-        self.down1 = Down(8, 16)
-        self.down2 = Down(16, 32)
+        self.inc = DoubleConv(3, 8)  # 21x21x9x8
+        self.down1 = Down(8, 16)  # 10x10x4x16
+        self.down2 = Down(16, 32)  # 5x5x2x32=1600
         self.fc1 = nn.Linear(1600, 256)
         self.fc2 = nn.Linear(256, 64)
         self.fc3 = nn.Linear(64, 6)

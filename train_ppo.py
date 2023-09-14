@@ -1,7 +1,4 @@
 import torch
-import torch.nn.functional as F
-from torch.optim.lr_scheduler import LinearLR
-
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -20,6 +17,9 @@ from monai.transforms import (
     Orientationd,
 )
 from monai.data import CacheDataset, DataLoader
+
+from ppo import PPO
+from ct_env import CTEnv
 
 
 class RunningMeanStd:
@@ -75,454 +75,6 @@ class RewardScaling:
         self.R = np.zeros(self.shape)
 
 
-class PPO:
-    """PPO算法(截断方式)"""
-    def __init__(self,
-                 actor_lr,
-                 critic_lr,
-                 lr_decay,
-                 total_steps,
-                 optimizer,
-                 adam_eps,
-                 lmbda,
-                 agent_epochs,
-                 batch_size,
-                 eps,
-                 entropy_coef,
-                 gamma,
-                 adv_norm,
-                 amp,
-                 device,
-                 valueNet_path,
-                 policyNet_path,
-                 val_update,
-                 ):
-        # 设置GPU设备
-        self.device = device
-        # 初始化策略网络和价值网络
-        self.actor = PolicyNet().to(self.device)
-        self.critic = ValueNet().to(self.device)
-        # 初始化网络优化函数
-        if optimizer == 'AdamW':
-            self.actor_optimizer = torch.optim.AdamW(self.actor.parameters(),
-                                                     lr=actor_lr, eps=adam_eps)
-            self.critic_optimizer = torch.optim.AdamW(self.critic.parameters(),
-                                                      lr=critic_lr, eps=adam_eps)
-        else:
-            self.actor_optimizer = torch.optim.Adam(self.actor.parameters(),
-                                                    lr=actor_lr, eps=adam_eps)
-            self.critic_optimizer = torch.optim.Adam(self.critic.parameters(),
-                                                     lr=critic_lr, eps=adam_eps)
-        # 初始化学习率衰减策略
-        self.lr_decay = lr_decay
-        if self.lr_decay:
-            self.actor_scheduler = LinearLR(optimizer=self.actor_optimizer,
-                                            start_factor=1,
-                                            end_factor=0,
-                                            total_iters=total_steps)
-            self.critic_scheduler = LinearLR(optimizer=self.critic_optimizer,
-                                             start_factor=1,
-                                             end_factor=0,
-                                             total_iters=total_steps)
-        # 初始化用于混合精度训练的梯度放大器
-        self.amp = amp
-        if self.amp:
-            self.actor_scaler = torch.cuda.amp.GradScaler()
-            self.critic_scaler = torch.cuda.amp.GradScaler()
-        # 设置PPO算法相关参数
-        self.gamma = gamma
-        self.lmbda = lmbda
-        self.eps = eps  # PPO中截断范围的参数
-        self.entropy_coef = entropy_coef  # 策略熵系数
-        self.adv_norm = adv_norm  # 是否使用优势估计标准化
-        # 设置训练相关参数
-        self.agent_epochs = agent_epochs  # 一条序列的数据用来训练的轮数
-        self.batch_size = batch_size  # 每次梯度下降的步数
-        # 设置模型保存路径
-        self.valueNet_path = valueNet_path
-        self.policyNet_path = policyNet_path
-        # 若启用验证后更新模式，需要再创建一套临时网络
-        if val_update:
-            self.temp_actor = PolicyNet().to(self.device)
-            self.temp_critic = ValueNet().to(self.device)
-            self.temp_actor.load_state_dict(self.actor.state_dict())
-            self.temp_critic.load_state_dict(self.critic.state_dict())
-
-    def get_lr(self):
-        """获取当前学习率"""
-        actor_lr = self.actor_scheduler.get_last_lr()
-        critic_lr = self.critic_scheduler.get_last_lr()
-        return actor_lr, critic_lr
-
-    def real_to_temp(self):
-        """将实际网络参数赋值给临时网络参数"""
-        self.temp_actor.load_state_dict(self.actor.state_dict())
-        self.temp_critic.load_state_dict(self.critic.state_dict())
-
-    def temp_to_real(self):
-        """将临时网络参数赋值回实际网络参数"""
-        self.actor.load_state_dict(self.temp_actor.state_dict())
-        self.critic.load_state_dict(self.temp_critic.state_dict())
-
-    def compute_advantage(self, td_delta):
-        """广义优势估计GAE"""
-        td_delta = td_delta.detach().numpy()
-        advantage_list = []
-        advantage = 0.0
-        for delta in td_delta[::-1]:
-            advantage = self.gamma * self.lmbda * advantage + delta
-            advantage_list.append(advantage)
-        advantage_list.reverse()
-        if self.adv_norm:  # 使用优势估计标准化
-            data = np.array(advantage_list)
-            mean = np.mean(data)
-            std = np.std(data)
-            z_score = np.nan_to_num((data - mean) / std)
-            return torch.tensor(z_score, dtype=torch.float)
-        else:
-            return torch.tensor(np.array(advantage_list), dtype=torch.float)
-
-    def take_action(self, state):
-        """根据策略网络采样动作，一般用于训练"""
-        state = torch.tensor(np.array([state]), dtype=torch.float).to(self.device)  # 增加一个batch维度
-        if self.amp:  # 若采用混合精度训练
-            with torch.cuda.amp.autocast():
-                probs = self.actor(state)
-        action_dist = torch.distributions.Categorical(probs)
-        action = action_dist.sample()
-        return action.item()
-
-    def take_certain_action(self, state):
-        """根据策略网络确定动作，一般用于验证和测试"""
-        state = torch.tensor(np.array([state]), dtype=torch.float).to(self.device)  # 增加一个batch维度
-        if self.amp:  # 若采用混合精度训练
-            with torch.cuda.amp.autocast():
-                probs = self.actor(state)
-        action = torch.argmax(probs)
-        return action.item()
-
-    def update(self, transition_dict):
-        """根据存入字典列表的数据更新策略网络和价值网络"""
-        states = torch.tensor(np.array(transition_dict['states']),
-                              dtype=torch.float).to(self.device)
-        actions = torch.tensor(transition_dict['actions']).view(-1, 1).to(self.device)
-        rewards = torch.tensor(np.array(transition_dict['rewards']),
-                               dtype=torch.float).view(-1, 1).to(self.device)
-        next_states = torch.tensor(np.array(transition_dict['next_states']),
-                                   dtype=torch.float).to(self.device)
-        dones = torch.tensor(transition_dict['dones'],
-                             dtype=torch.float).view(-1, 1).to(self.device)
-        td_target = rewards + self.gamma * self.critic(next_states) * (1 - dones)
-        td_delta = td_target - self.critic(states)  # 时序差分
-        advantage = self.compute_advantage(td_delta.cpu()).to(self.device)
-        old_log_probs = torch.log(self.actor(states).gather(1, actions)).detach()  # 取出对应动作的概率值
-
-        for _ in range(self.agent_epochs):
-            if self.batch_size:
-                # 若采用minibatch更新方式，则将数据切分为数个batch
-                batch_step = np.arange(0, len(states), self.batch_size)
-                indices = np.arange(len(states), dtype=np.int64)
-                np.random.shuffle(indices)
-                batches = [indices[i:i+self.batch_size] for i in batch_step]
-                # 随机梯度下降
-                for batch in batches:
-                    states_batch = states[batch]
-                    actions_batch = actions[batch]
-                    old_log_probs_batch = old_log_probs[batch]
-                    advantage_batch = advantage[batch]
-                    td_target_batch = td_target[batch]
-                    if self.amp:  # 若采用混合精度训练
-                        with torch.cuda.amp.autocast():
-                            probs = self.actor(states_batch)
-                            entropy = -(torch.log(probs) * probs).sum(-1).mean()  # 计算策略熵
-                            log_probs = torch.log(probs.gather(1, actions_batch))  # 取出对应动作的概率值
-                            ratio = torch.exp(log_probs - old_log_probs_batch)  # 新旧动作概率的比值
-                            surr1 = ratio * advantage_batch
-                            surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps)  # 截断
-                            actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
-                            critic_loss = torch.mean(F.mse_loss(self.critic(states_batch), td_target_batch.detach()))
-
-                        self.actor_optimizer.zero_grad()
-                        self.actor_scaler.scale(actor_loss).backward()  # 梯度缩放
-                        self.actor_scaler.unscale_(self.actor_optimizer)  # 梯度反向缩放
-                        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)  # 梯度裁剪
-                        self.actor_scaler.step(self.actor_optimizer)
-                        self.actor_scaler.update()
-
-                        self.critic_optimizer.zero_grad()
-                        self.critic_scaler.scale(critic_loss).backward()
-                        self.critic_scaler.unscale_(self.critic_optimizer)
-                        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
-                        self.critic_scaler.step(self.critic_optimizer)
-                        self.critic_scaler.update()
-                    else:
-                        probs = self.actor(states_batch)
-                        entropy = -(torch.log(probs) * probs).sum(-1).mean()  # 计算策略熵
-                        log_probs = torch.log(probs.gather(1, actions_batch))  # 取出对应动作的概率值
-                        ratio = torch.exp(log_probs - old_log_probs_batch)  # 新旧动作概率的比值
-                        surr1 = ratio * advantage_batch
-                        surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps)  # 截断
-                        actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
-                        critic_loss = torch.mean(F.mse_loss(self.critic(states_batch), td_target_batch.detach()))
-
-                        self.actor_optimizer.zero_grad()
-                        actor_loss.backward()
-                        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
-                        self.actor_optimizer.step()
-
-                        self.critic_optimizer.zero_grad()
-                        critic_loss.backward()
-                        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
-                        self.critic_optimizer.step()
-            else:
-                # 若不采用minibatch更新方式，则整个序列作为一个batch一起更新
-                if self.amp:  # 若采用混合精度训练
-                    with torch.cuda.amp.autocast():
-                        probs = self.actor(states)
-                        entropy = -(torch.log(probs) * probs).sum(-1).mean()  # 计算策略熵
-                        log_probs = torch.log(probs.gather(1, actions))  # 取出对应动作的概率值
-                        ratio = torch.exp(log_probs - old_log_probs)  # 新旧动作概率的比值
-                        surr1 = ratio * advantage
-                        surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps)  # 截断
-                        actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
-                        critic_loss = torch.mean(F.mse_loss(self.critic(states), td_target.detach()))
-
-                    self.actor_optimizer.zero_grad()
-                    self.actor_scaler.scale(actor_loss).backward()
-                    self.actor_scaler.unscale_(self.actor_optimizer)
-                    torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
-                    self.actor_scaler.step(self.actor_optimizer)
-                    self.actor_scaler.update()
-
-                    self.critic_optimizer.zero_grad()
-                    self.critic_scaler.scale(critic_loss).backward()
-                    self.critic_scaler.unscale_(self.critic_optimizer)
-                    torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
-                    self.critic_scaler.step(self.critic_optimizer)
-                    self.critic_scaler.update()
-                else:
-                    probs = self.actor(states)
-                    entropy = -(torch.log(probs) * probs).sum(-1).mean()  # 计算策略熵
-                    log_probs = torch.log(probs.gather(1, actions))  # 取出对应动作的概率值
-                    ratio = torch.exp(log_probs - old_log_probs)  # 新旧动作概率的比值
-                    surr1 = ratio * advantage
-                    surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps)  # 截断
-                    actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
-                    critic_loss = torch.mean(F.mse_loss(self.critic(states), td_target.detach()))
-
-                    self.actor_optimizer.zero_grad()
-                    actor_loss.backward()
-                    torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
-                    self.actor_optimizer.step()
-
-                    self.critic_optimizer.zero_grad()
-                    critic_loss.backward()
-                    torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
-                    self.critic_optimizer.step()
-            # 若采用学习率衰减，则更新学习率
-            if self.lr_decay:
-                self.actor_scheduler.step()
-                self.critic_scheduler.step()
-
-    def save_model(self):
-        """保存训练好的策略网络模型和价值网络模型"""
-        torch.save(self.actor.state_dict(), self.policyNet_path)
-        torch.save(self.critic.state_dict(), self.valueNet_path)
-
-    def train(self):
-        """将网络模型设置为训练模式（在训练前使用）"""
-        self.actor.train()
-        self.critic.train()
-
-    def eval(self):
-        """将网络模型设置为验证模式（在验证或测试时使用）"""
-        self.actor.eval()
-        self.critic.eval()
-
-
-class CTEnv:
-    """定义CT图像环境"""
-    def __init__(self,
-                 image,
-                 mask,
-                 pred,
-                 prob,
-                 state_size,
-                 step_max,
-                 step_limit_max,
-                 state_mode,
-                 reward_mode,
-                 out_mode,
-                 out_reward_mode,
-                 ):
-        self.image = image  # 初始化image
-        self.mask = mask.int()  # 初始化mask
-        self.preded = pred.int()  # 初始化已预测图像
-        self.prob = prob  # 初始化概率图
-
-        self.state_size = state_size  # 初始化状态图大小
-        self.step_max = step_max  # 限制最大步数
-        self.step_limit_max = step_limit_max  # 限制无新标注的探索步数
-        self.state_mode = state_mode  # 设置状态返回模式
-        self.reward_mode = reward_mode  # 设置奖励函数模式
-        self.out_mode = out_mode  # 设置边界外是否停止
-        self.out_reward_mode = out_reward_mode  # 设置边界外奖励函数
-
-        self.step_n = 0  # 初始步数
-        self.step_limit_n = 0  # 初始无新标注步数
-        self.dice = 0  # 初始化dice值
-        self.cover = 0  # 初始化cover值
-
-        # 根据状态图大小对原图像、标注图像、已预测图像和概率图进行padding
-        self.pad_length = int((self.state_size[0] - 1) / 2)
-        self.pad_width = int((self.state_size[1] - 1) / 2)
-        self.pad_depth = int((self.state_size[2] - 1) / 2)
-        pad_size = (self.pad_depth, self.pad_depth,
-                    self.pad_width, self.pad_width,
-                    self.pad_length, self.pad_length)
-        self.image_padding = F.pad(self.image, pad_size, 'constant', 0)
-        self.mask_padding = F.pad(self.mask, pad_size, 'constant', 0)
-        self.preded_padding = F.pad(self.preded, pad_size, 'constant', 0)
-        self.prob_padding = F.pad(self.prob, pad_size, 'constant', 0)
-
-        # 创建与标注大小相同的预测图
-        self.pred_padding = torch.zeros_like(self.mask_padding).int()
-
-        # 初始化起点(注意：起点坐标为padding后的坐标)
-        spots = torch.nonzero(self.mask_padding)
-        i = np.random.randint(len(spots))
-        self.ori_spot = spots[i]  # 从标注中随机选取一点作为起点
-        self.spot = self.ori_spot.tolist()  # 初始化智能体位置坐标
-
-    def reset(self):
-        """回归初始状态（预测图只包含随机起点的状态）并返回初始状态值"""
-        self.step_n = 1  # 步数置1
-        self.step_limit_n = 0  # 无新标注步数置0
-        self.spot = self.ori_spot.tolist()  # 初始化智能体位置坐标
-        self.pred_padding = torch.zeros_like(self.mask_padding).int()  # 初始化预测图像
-        if self.state_mode == 'post':
-            next_state = self.spot_to_state()  # post模式先返回状态后标注
-        self.pred_padding[tuple(self.spot)] = 1
-        if self.state_mode == 'pre':
-            next_state = self.spot_to_state()  # pre模式先标注后返回状态
-        self.dice = self.compute_dice()
-        self.cover = self.pred_cover()
-        return next_state  # 返回下一个状态图
-
-    def spot_to_state(self):
-        """通过spot和给定的state图像大小计算返回相应state图像"""
-        # 计算当前spot对应于padding后图像的状态图边界
-        l_side = self.spot[0] - self.pad_length  # 状态图左边界
-        r_side = self.spot[0] + self.pad_length + 1  # 状态图右边界
-        u_side = self.spot[1] - self.pad_width  # 状态图上边界
-        d_side = self.spot[1] + self.pad_width + 1  # 状态图下边界
-        f_side = self.spot[2] - self.pad_depth  # 状态图前边界
-        b_side = self.spot[2] + self.pad_depth + 1  # 状态图后边界
-        # 取状态图并融合
-        image_state = self.image_padding[l_side:r_side, u_side:d_side, f_side:b_side]
-        pred_state = self.pred_padding[l_side:r_side, u_side:d_side, f_side:b_side]
-        prob_state = self.prob_padding[l_side:r_side, u_side:d_side, f_side:b_side]
-        state = torch.stack((image_state, prob_state, pred_state), dim=0)
-        return np.array(state.cpu())  # 将状态图转换为numpy格式
-
-    def step(self, action):
-        """智能体完成一个动作，并返回下一个状态、奖励和完成情况"""
-        change = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
-        self.spot = [x + y for x, y in zip(self.spot, change[action])]  # 将动作叠加到位置
-        self.step_n += 1  # 步数累积
-        done = False  # 默认为未完成
-        # 如果超出边界
-        if self.spot_is_out():
-            if self.out_mode:
-                done = True
-            next_state = self.spot_to_state()  # 超出边界时状态图不移动
-            # 根据不同模式计算超出边界时的reward
-            if self.out_reward_mode == 'step':
-                reward = -self.step_n  # 超出边界时奖励为当前动作数的负值
-            elif self.out_reward_mode == 'small':
-                reward = -1  # 超出边界时奖励为-1
-            elif self.out_reward_mode == 'large':
-                reward = -100  # 超出边界时奖励为-100
-            elif self.out_reward_mode == '0':
-                reward = 0  # 超出边界时奖励为0
-        # 未超出边界时
-        else:
-            if self.state_mode == 'post':
-                next_state = self.spot_to_state()  # post模式先返回状态后标注
-            # 根据不同模式计算reward
-            if self.reward_mode == 'const':
-                # 计算reward
-                reward = self.spot_to_const_reward()
-            # 在预测图像中记录标注路径
-            self.pred_padding[tuple(self.spot)] = 1
-            dice_new = self.compute_dice()
-            if self.reward_mode == 'dice_inc':
-                # 计算dice值增量
-                dice_inc = dice_new - self.dice
-                reward = dice_inc * 100  # 奖励为dice值增量的100倍
-            self.dice = dice_new
-            if self.state_mode == 'pre':
-                next_state = self.spot_to_state()  # pre模式先标注后返回状态
-        cover_new = self.pred_cover()
-        cover_inc = cover_new - self.cover
-        self.cover = cover_new
-        # 判断是否达到步数限制条件
-        if cover_inc > 0:
-            self.step_limit_n = 0  # 清空无新标注覆盖步数
-        else:
-            self.step_limit_n += 1  # 无新标注覆盖步数累积
-        if self.step_limit_n >= self.step_limit_max:
-            done = True
-        if self.step_n >= self.step_max:
-            done = True
-        return next_state, reward, done
-
-    def spot_is_out(self):
-        """判断当前spot是否超出padding前的实际边界，超出边界的点赋值为边界值"""
-        length = self.pred_padding.shape[0]
-        width = self.pred_padding.shape[1]
-        depth = self.pred_padding.shape[2]
-        if self.spot[0] < self.pad_length:
-            self.spot[0] = self.pad_length
-            return True
-        elif self.spot[0] > length - self.pad_length - 1:
-            self.spot[0] = length - self.pad_length - 1
-            return True
-        elif self.spot[1] < self.pad_width:
-            self.spot[1] = self.pad_width
-            return True
-        elif self.spot[1] > width - self.pad_width - 1:
-            self.spot[1] = width - self.pad_width - 1
-            return True
-        elif self.spot[2] < self.pad_depth:
-            self.spot[2] = self.pad_depth
-            return True
-        elif self.spot[2] > depth - self.pad_depth - 1:
-            self.spot[2] = depth - self.pad_depth - 1
-            return True
-        else:
-            return False  # 未超出边界则返回False
-
-    def compute_dice(self):
-        """返回当前预测图像和标注图像dice值"""
-        return (2 * (self.pred_padding & self.mask_padding).sum() /
-                (self.pred_padding.sum() + self.mask_padding.sum())).item()
-
-    def pred_cover(self):
-        """计算当前预测图像对已预测图像的覆盖值"""
-        return (self.pred_padding & self.preded_padding).sum()
-
-    def spot_to_const_reward(self):
-        """reward模式为const时，通过当前spot得到对应的reward"""
-        if self.pred_padding[tuple(self.spot)] == 1:  # 重复时奖励为0
-            reward = 0
-        elif self.mask_padding[tuple(self.spot)] == 1:  # 不重复且涂对时奖励为1
-            reward = 1
-        else:
-            reward = -1  # 未涂对时奖励为-1
-        return reward
-
-
 def train(train_files,
           val_files,
           agent,
@@ -543,6 +95,8 @@ def train(train_files,
           train_certain,
           val_certain,
           val_update,
+          train_spot_type,
+          val_spot_type,
           device,
           ):
     """训练"""
@@ -554,12 +108,12 @@ def train(train_files,
                 LoadImaged(keys=["image", "mask", "pred"]),   # 载入图像
                 LoadImaged(keys=["prob"],
                            reader="NumpyReader",
-                           npz_keys='probabilities'),
+                           npz_keys='probabilities'),  # 载入预测概率图
                 Orientationd(keys=["prob"], axcodes="SAR"),
                 ScaleIntensityRanged(keys=["image"], a_min=-135, a_max=215,
                                      b_min=0, b_max=1,
                                      clip=True),  # 归一化
-                EnsureTyped(keys=["image", "mask", "pred", "prob"])   # 转换为tensor
+                EnsureTyped(keys=["image", "mask", "pred", "prob"])  # 转换为tensor
             ]
         )
     elif norm_method == 'norm':
@@ -568,14 +122,14 @@ def train(train_files,
                 LoadImaged(keys=["image", "mask", "pred"]),   # 载入图像
                 LoadImaged(keys=["prob"],
                            reader="NumpyReader",
-                           npz_keys='probabilities'),
+                           npz_keys='probabilities'),  # 载入预测概率图
                 Orientationd(keys=["prob"], axcodes="SAR"),
                 ThresholdIntensityd(keys=["image"], threshold=72, above=True, cval=72),
                 ThresholdIntensityd(keys=["image"], threshold=397, above=False, cval=397),
                 NormalizeIntensityd(keys=["image"],
                                     subtrahend=226.2353057861328,
                                     divisor=62.27060317993164),
-                EnsureTyped(keys=["image", "mask", "pred", "prob"])   # 转换为tensor
+                EnsureTyped(keys=["image", "mask", "pred", "prob"])  # 转换为tensor
             ]
         )
 
@@ -631,8 +185,12 @@ def train(train_files,
                 for _ in range(num_episodes):
                     episode_return = 0  # 记录一个序列的总回报
                     episode_length = 0  # 记录一个序列的总长度
-                    transition_dict = {'states': [], 'actions': [], 'next_states': [], 'rewards': [], 'dones': []}
-                    state = env.reset()  # 每个序列训练前先进行初始化操作（设置随机起点）
+                    transition_dict = {'states': [],
+                                       'actions': [],
+                                       'next_states': [],
+                                       'rewards': [],
+                                       'dones': []}
+                    state = env.reset(spot_type=train_spot_type)  # 每个序列训练前先进行初始化操作
                     reward_normalizer.reset()  # 每个序列初始化奖励标准化方法
                     done = False
                     while not done:
@@ -702,7 +260,7 @@ def train(train_files,
                             reward_mode,
                             out_mode,
                             out_reward_mode)  # 初始化环境
-                state = env.reset()
+                state = env.reset(spot_type=val_spot_type)
                 done = False
                 while not done:
                     if state_norm:  # 验证时采用状态标准化
@@ -744,11 +302,13 @@ def train(train_files,
 
 if __name__ == '__main__':
     """网络选择"""
-    net_name = 'unet'  # 可选：unet, unet2
+    net_name = 'resnet'  # 可选：unet, unet2, resnet
     if net_name == 'unet':
         from yunet import ValueUNet as ValueNet, PolicyUNet as PolicyNet
     elif net_name == 'unet2':
         from yunet import ValueUNet2 as ValueNet, PolicyUNet2 as PolicyNet
+    elif net_name == 'resnet':
+        from yunet import ValueResNet as ValueNet, PolicyResNet as PolicyNet
     else:
         print('error: the net is not exist!')
 
@@ -831,13 +391,15 @@ if __name__ == '__main__':
     step_limit_max = 500  # 序列重复标注最大长度
     num_episodes = 1  # 每条序列训练次数
     state_mode = 'pre'  # 状态模式，可选：pre(先标注再返回状态), post(返回状态后再标注)
-    reward_mode = 'dice_inc'  # 奖励模式，可选：dice_inc, const
+    reward_mode = 'dice_inc_const'  # 奖励模式，可选：dice_inc, const, dice_inc_const
     out_mode = False  # 出边界是否停止，True则停止
     out_reward_mode = 'small'  # 出边界奖励模式，可选：small, large, step，0
     total_steps = epochs * len(train_files) * num_episodes * agent_epochs  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
     train_certain = False  # 是否在训练时采用确定性策略，False代表采用随机采样策略
     val_certain = False  # 是否在验证时采用确定性策略，False代表采用随机采样策略
     val_update = False  # 是否经过验证集后才真正更新网络参数
+    train_spot_type = 'ori_spot'  # 设置训练起点类型
+    val_spot_type = 'prob_spot'  # 设置验证起点类型
 
     """记录参数信息"""
     logging.info(f'''
@@ -859,10 +421,13 @@ if __name__ == '__main__':
     reward_mode = {reward_mode}  reward_norm = {reward_norm}
     out_mode = {out_mode}  out_reward_mode = {out_reward_mode}
     train_certain = {train_certain}
-    val_certain = {val_certain}  val_update = {val_update}''')
+    val_certain = {val_certain}  val_update = {val_update}
+    train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}''')
 
     """初始化agent"""
-    agent = PPO(actor_lr=actor_lr,
+    agent = PPO(policy_net=PolicyNet(),
+                value_net=ValueNet(),
+                actor_lr=actor_lr,
                 critic_lr=critic_lr,
                 lr_decay=lr_decay,
                 total_steps=total_steps,
@@ -903,5 +468,7 @@ if __name__ == '__main__':
           train_certain=train_certain,
           val_certain=val_certain,
           val_update=val_update,
+          train_spot_type=train_spot_type,
+          val_spot_type=val_spot_type,
           device=device,
           )
