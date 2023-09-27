@@ -170,7 +170,7 @@ class PPO:
                             log_probs = torch.log(probs.gather(1, actions_batch))  # 取出对应动作的概率值
                             ratio = torch.exp(log_probs - old_log_probs_batch)  # 新旧动作概率的比值
                             surr1 = ratio * advantage_batch
-                            surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps) * advantage  # 截断
+                            surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps) * advantage_batch  # 截断
                             actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
                             critic_loss = torch.mean(F.mse_loss(self.critic(states_batch), td_target_batch.detach()))
 
@@ -193,7 +193,7 @@ class PPO:
                         log_probs = torch.log(probs.gather(1, actions_batch))  # 取出对应动作的概率值
                         ratio = torch.exp(log_probs - old_log_probs_batch)  # 新旧动作概率的比值
                         surr1 = ratio * advantage_batch
-                        surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps) * advantage  # 截断
+                        surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps) * advantage_batch  # 截断
                         actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
                         critic_loss = torch.mean(F.mse_loss(self.critic(states_batch), td_target_batch.detach()))
 

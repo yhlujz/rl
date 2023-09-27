@@ -185,7 +185,7 @@ if __name__ == '__main__':
     out_mode = False  # 出边界是否停止，True则停止
     out_reward_mode = 'small'  # 出边界奖励模式，可选：small, large, step，0
     val_certain = False  # 是否在验证时采用确定性策略，False代表采用随机采样策略
-    val_spot_type = 'prob_spot'  # 设置验证起点类型
+    val_spot_type = 'prob_spot'  # 设置验证起点类型，可选ori_spot，prob_spot
 
     """初始化agent"""
     agent = PPOPredict(
