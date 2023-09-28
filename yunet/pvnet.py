@@ -27,12 +27,12 @@ class DoubleConv(nn.Module):
 
 
 class Down(nn.Module):
-    """下采样，3*3*3最大池化+双层卷积"""
+    """下采样，最大池化+双层卷积"""
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.maxpool_conv = nn.Sequential(
-            nn.MaxPool3d(kernel_size=3, stride=3),
+            nn.MaxPool3d(2),
             DoubleConv(in_channels, out_channels)
         )
 
@@ -40,17 +40,17 @@ class Down(nn.Module):
         return self.maxpool_conv(x)
 
 
-class PolicyUNet2(nn.Module):
-    """策略网络：输入27X27X9X3的状态，输出6个动作的概率"""
+class PolicyNet(nn.Module):
+    """策略网络：输入21X21X9X3的状态，输出6个动作的概率"""
 
     def __init__(self):
         super().__init__()
 
-        self.inc = DoubleConv(3, 8)
-        self.down1 = Down(8, 16)
-        self.down2 = Down(16, 32)
-        self.fc1 = nn.Linear(288, 128)
-        self.fc2 = nn.Linear(128, 64)
+        self.inc = DoubleConv(3, 8)  # 21x21x9x8
+        self.down1 = Down(8, 16)  # 10x10x4x16
+        self.down2 = Down(16, 32)  # 5x5x2x32=1600
+        self.fc1 = nn.Linear(1600, 256)
+        self.fc2 = nn.Linear(256, 64)
         self.fc3 = nn.Linear(64, 6)
         # 初始化网络参数
         for m in self.modules():
@@ -63,15 +63,15 @@ class PolicyUNet2(nn.Module):
     def forward(self, x):
         x1 = self.inc(x)
         x2 = self.down1(x1)
-        x3 = self.down2(x2).view(-1, 288)  # 展平为一维张量
+        x3 = self.down2(x2).view(-1, 1600)  # 展平为一维张量
         x4 = torch.tanh(self.fc1(x3))
         x5 = torch.tanh(self.fc2(x4))
         x6 = torch.softmax(self.fc3(x5), dim=1)
         return x6
 
 
-class ValueUNet2(nn.Module):
-    """价值网络：输入27X27X9X3的状态，输出1个当前状态的价值"""
+class ValueNet(nn.Module):
+    """价值网络：输入21X21X9X3的状态，输出1个当前状态的价值"""
 
     def __init__(self):
         super().__init__()
@@ -79,8 +79,8 @@ class ValueUNet2(nn.Module):
         self.inc = DoubleConv(3, 8)
         self.down1 = Down(8, 16)
         self.down2 = Down(16, 32)
-        self.fc1 = nn.Linear(288, 128)
-        self.fc2 = nn.Linear(128, 64)
+        self.fc1 = nn.Linear(1600, 256)
+        self.fc2 = nn.Linear(256, 64)
         self.fc3 = nn.Linear(64, 1)
         # 初始化网络参数
         for m in self.modules():
@@ -93,7 +93,7 @@ class ValueUNet2(nn.Module):
     def forward(self, x):
         x1 = self.inc(x)
         x2 = self.down1(x1)
-        x3 = self.down2(x2).view(-1, 288)  # 展平为一维张量
+        x3 = self.down2(x2).view(-1, 1600)  # 展平为一维张量
         x4 = torch.tanh(self.fc1(x3))
         x5 = torch.tanh(self.fc2(x4))
         x6 = self.fc3(x5)

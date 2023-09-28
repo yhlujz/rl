@@ -23,7 +23,7 @@ class D3QN:
         # 初始化q值网络
         self.q_net = va_net.to(device)
         self.target_q_net = va_net.to(device)
-        self.optimizer = torch.optim.AdamW(self.actor.parameters(),
+        self.optimizer = torch.optim.AdamW(self.q_net.parameters(),
                                            lr=learning_rate, eps=adam_eps)
         # 初始化学习率衰减策略
         self.scheduler = LinearLR(optimizer=self.optimizer,
@@ -32,7 +32,7 @@ class D3QN:
                                   total_iters=total_steps)
         # 初始化用于混合精度训练的梯度放大器
         self.scaler = torch.cuda.amp.GradScaler()
-        # 设置其他参数
+        # 设置D3QN算法相关参数
         self.gamma = gamma
         self.epsilon = epsilon
         self.target_update = target_update
@@ -54,8 +54,9 @@ class D3QN:
         if np.random.random() < self.epsilon:
             action = np.random.randint(self.action_dim)
         else:
-            state = torch.tensor([state], dtype=torch.float).to(self.device)
-            action = self.q_net(state).argmax().item()
+            state = torch.tensor(np.array([state]), dtype=torch.float).to(self.device)
+            with torch.cuda.amp.autocast():
+                action = self.q_net(state).argmax().item()
         return action
 
     def update(self, transition_dict):

@@ -1,4 +1,4 @@
-from .unet import PolicyUNet, ValueUNet
-from .unet2 import PolicyUNet2, ValueUNet2
+from .pvnet import PolicyNet, ValueNet
+from .pvnet2 import PolicyNet2, ValueNet2
 from .resnet import PolicyResNet, ValueResNet
 from .vanet import VANet
