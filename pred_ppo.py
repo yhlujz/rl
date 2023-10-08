@@ -143,7 +143,7 @@ if __name__ == '__main__':
     print(f'Using device {device}\n')
 
     """网络加载"""
-    from yunet import PolicyUNet as PolicyNet
+    from yunet import PolicyNet as PolicyNet
     policyNet_path = '/workspace/data/rl/model/ppo_policy09080.pth'
     policy_net = PolicyNet().to(device)
     policy_net.load_state_dict(torch.load(policyNet_path, map_location=device))

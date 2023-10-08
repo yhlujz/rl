@@ -52,7 +52,7 @@ class D3QN:
     def take_action(self, state):
         """根据q值网络确定动作，并使用贪婪方式"""
         if np.random.random() < self.epsilon:
-            action = np.random.randint(self.action_dim)
+            action = np.random.randint(6)  # 一共6个动作
         else:
             state = torch.tensor(np.array([state]), dtype=torch.float).to(self.device)
             with torch.cuda.amp.autocast():
@@ -92,7 +92,7 @@ class D3QN:
         self.count += 1
 
     def save_model(self):
-        """保存训练好的策略网络模型和价值网络模型"""
+        """保存训练好的q值网络模型"""
         torch.save(self.q_net.state_dict(), self.VANet_path)
 
     def train(self):

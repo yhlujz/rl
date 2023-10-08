@@ -130,11 +130,6 @@ def train(train_files,
                 for _ in range(num_episodes):
                     episode_return = 0  # 记录一个序列的总回报
                     episode_length = 0  # 记录一个序列的总长度
-                    transition_dict = {'states': [],
-                                       'actions': [],
-                                       'next_states': [],
-                                       'rewards': [],
-                                       'dones': []}
                     state = env.reset(spot_type=train_spot_type)  # 每个序列训练前先进行初始化操作
                     done = False
                     while not done:

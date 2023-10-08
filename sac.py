@@ -26,13 +26,13 @@ class SAC:
         # 策略网络
         self.actor = policy_net.to(self.device)
         # 第一个Q网络
-        self.critic_1 = va_net.to(device)
+        self.critic_1 = va_net.to(self.device)
         # 第一个目标Q网络
-        self.target_critic_1 = va_net.to(device)
+        self.target_critic_1 = va_net.to(self.device)
         # 第二个Q网络
-        self.critic_2 = va_net.to(device)
+        self.critic_2 = va_net.to(self.device)
         # 第二个目标Q网络
-        self.target_critic_2 = va_net.to(device)
+        self.target_critic_2 = va_net.to(self.device)
         # 令目标Q网络的初始参数和Q网络一样
         self.target_critic_1.load_state_dict(self.critic_1.state_dict())
         self.target_critic_2.load_state_dict(self.critic_2.state_dict())
@@ -61,7 +61,7 @@ class SAC:
         self.critic_1_scaler = torch.cuda.amp.GradScaler()
         self.critic_2_scaler = torch.cuda.amp.GradScaler()
         # 设置SAC算法相关参数
-        self.log_alpha = torch.tensor(np.log(0.01), dtype=torch.float)
+        self.log_alpha = torch.tensor(np.log(0.01), dtype=torch.float).to(self.device)
         self.log_alpha.requires_grad = True  # 可以对alpha求梯度
         self.log_alpha_optimizer = torch.optim.AdamW([self.log_alpha],
                                                      lr=alpha_lr, eps=adam_eps)
@@ -193,3 +193,19 @@ class SAC:
         # 平滑更新两个q值网络
         self.soft_update(self.critic_1, self.target_critic_1)
         self.soft_update(self.critic_2, self.target_critic_2)
+
+    def save_model(self):
+        """保存训练好的策略网络模型和价值网络模型"""
+        torch.save(self.actor.state_dict(), self.policyNet_path)
+
+    def train(self):
+        """将网络模型设置为训练模式（在训练前使用）"""
+        self.actor.train()
+        self.critic_1.train()
+        self.critic_2.train()
+
+    def eval(self):
+        """将网络模型设置为验证模式（在验证或测试时使用）"""
+        self.actor.eval()
+        self.critic_1.eval()
+        self.critic_2.eval()
