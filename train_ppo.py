@@ -78,6 +78,7 @@ class RewardScaling:
 def train(train_files,
           val_files,
           agent,
+          state_channel,
           state_size,
           norm_method,
           state_norm,
@@ -175,6 +176,7 @@ def train(train_files,
                             masks[0],
                             preds[0],
                             probs[0][1],
+                            state_channel,
                             state_size,
                             step_max,
                             step_limit_max,
@@ -253,6 +255,7 @@ def train(train_files,
                             masks[0],
                             preds[0],
                             probs[0][1],
+                            state_channel,
                             state_size,
                             step_max,
                             step_limit_max,
@@ -301,17 +304,6 @@ def train(train_files,
 
 
 if __name__ == '__main__':
-    """网络选择"""
-    net_name = 'resnet'  # 可选：unet, unet2, resnet
-    if net_name == 'unet':
-        from yunet import ValueNet as ValueNet, PolicyNet as PolicyNet
-    elif net_name == 'unet2':
-        from yunet import ValueNet2 as ValueNet, PolicyNet2 as PolicyNet
-    elif net_name == 'resnet':
-        from yunet import ValueResNet as ValueNet, PolicyResNet as PolicyNet
-    else:
-        print('error: the net is not exist!')
-
     """固定随机种子"""
     set_determinism(seed=0)
 
@@ -384,12 +376,13 @@ if __name__ == '__main__':
     eps = 0.2  # ppo算法限制值
     entropy_coef = 0.01  # 策略熵系数，可设置为0
 
+    state_channel = 3  # 状态图通道数，可选2，3
     state_size = [21, 21, 9]  # 状态图大小
     norm_method = 'norm'  # 归一化方法，可选：min_max, norm
     epochs = 500  # 总循环次数
     num_workers = 0  # 数据加载线程数
     step_max = 5000  # 序列最大长度
-    step_limit_max = 500  # 序列重复标注最大长度
+    step_limit_max = 500  # 限制无新标注的探索步数
     num_episodes = 1  # 每条序列训练次数
     state_mode = 'pre'  # 状态模式，可选：pre(先标注再返回状态), post(返回状态后再标注)
     reward_mode = 'dice_inc_const'  # 奖励模式，可选：dice_inc, const, dice_inc_const
@@ -401,6 +394,20 @@ if __name__ == '__main__':
     val_update = False  # 是否经过验证集后才真正更新网络参数
     train_spot_type = 'ori_spot'  # 设置训练起点类型，可选ori_spot，prob_spot
     val_spot_type = 'prob_spot'  # 设置验证起点类型
+
+    """网络选择"""
+    net_name = 'pvnet'  # 可选：pvnet, pvnet2, resnet
+    if net_name == 'pvnet':
+        from yunet import ValueNet as ValueNet, PolicyNet as PolicyNet
+    elif net_name == 'pvnet2':
+        from yunet import ValueNet2 as ValueNet, PolicyNet2 as PolicyNet
+    elif net_name == 'resnet':
+        from yunet import ValueResNet as ValueNet, PolicyResNet as PolicyNet
+    else:
+        print('error: the net is not exist!')
+
+    policy_net = PolicyNet(state_channel).to(device)
+    value_net = ValueNet(state_channel).to(device)
 
     """记录参数信息"""
     logging.info(f'''
@@ -416,7 +423,7 @@ if __name__ == '__main__':
     amp = {amp}
     step_max = {step_max}  step_limit_max = {step_limit_max}
     num_episodes = {num_episodes}
-    state_size = {state_size}
+    state_channel = {state_channel}  state_size = {state_size}
     norm_method = {norm_method}
     state_mode = {state_mode}  state_norm = {state_norm}
     reward_mode = {reward_mode}  reward_norm = {reward_norm}
@@ -426,8 +433,8 @@ if __name__ == '__main__':
     train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}''')
 
     """初始化agent"""
-    agent = PPO(policy_net=PolicyNet(),
-                value_net=ValueNet(),
+    agent = PPO(policy_net=policy_net,
+                value_net=value_net,
                 actor_lr=actor_lr,
                 critic_lr=critic_lr,
                 lr_decay=lr_decay,
@@ -452,6 +459,7 @@ if __name__ == '__main__':
     train(train_files=train_files,
           val_files=val_files,
           agent=agent,
+          state_channel=state_channel,
           state_size=state_size,
           norm_method=norm_method,
           state_norm=state_norm,

@@ -11,6 +11,7 @@ class CTEnv:
                  mask,
                  pred,
                  prob,
+                 state_channel,
                  state_size,
                  step_max,
                  step_limit_max,
@@ -24,6 +25,7 @@ class CTEnv:
         self.preded = pred.int()  # 初始化已预测图像
         self.prob = prob  # 初始化概率图
 
+        self.state_channel = state_channel  # 初始化状态图通道数
         self.state_size = state_size  # 初始化状态图大小
         self.step_max = step_max  # 限制最大步数
         self.step_limit_max = step_limit_max  # 限制无新标注的探索步数
@@ -96,7 +98,12 @@ class CTEnv:
         image_state = self.image_padding[l_side:r_side, u_side:d_side, f_side:b_side]
         pred_state = self.pred_padding[l_side:r_side, u_side:d_side, f_side:b_side]
         prob_state = self.prob_padding[l_side:r_side, u_side:d_side, f_side:b_side]
-        state = torch.stack((image_state, prob_state, pred_state), dim=0)
+        if self.state_channel == 3:
+            state = torch.stack((image_state, prob_state, pred_state), dim=0)
+        elif self.state_channel == 2:
+            state = torch.stack((image_state, pred_state), dim=0)
+        else:
+            print("state_channel is error!")
         return np.array(state.cpu())  # 将状态图转换为numpy格式
 
     def step(self, action):

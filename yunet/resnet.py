@@ -61,12 +61,12 @@ class Down(nn.Module):
 
 
 class PolicyResNet(nn.Module):
-    """策略网络：输入21X21X9X3的状态，输出6个动作的概率"""
+    """策略网络：输入21X21X9Xc的状态，输出6个动作的概率"""
 
-    def __init__(self):
+    def __init__(self, state_channel):
         super().__init__()
 
-        self.inc = DoubleRes(3, 8)  # 21x21x9x8
+        self.inc = DoubleRes(state_channel, 8)  # 21x21x9x8
         self.down1 = Down(8, 16)  # 11x11x5x16
         self.down2 = Down(16, 32)  # 6x6x3x32
         self.down3 = Down(32, 64)  # 3x3x2x64
@@ -89,12 +89,12 @@ class PolicyResNet(nn.Module):
 
 
 class ValueResNet(nn.Module):
-    """价值网络：输入21X21X9X3的状态，输出1个当前状态的价值"""
+    """价值网络：输入21X21X9Xc的状态，输出1个当前状态的价值"""
 
-    def __init__(self):
+    def __init__(self, state_channel):
         super().__init__()
 
-        self.inc = DoubleRes(3, 8)  # 21x21x9x8
+        self.inc = DoubleRes(state_channel, 8)  # 21x21x9x8
         self.down1 = Down(8, 16)  # 11x11x5x16
         self.down2 = Down(16, 32)  # 6x6x3x32
         self.down3 = Down(32, 64)  # 3x3x2x64

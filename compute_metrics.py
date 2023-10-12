@@ -356,11 +356,11 @@ def compute_single_metrics(root_path):
     for _, row in df.iterrows():
         if row['dataset'] == 'test':
             masks.append(row['mask_path'])
-    preds = sorted(glob.glob(os.path.join(root_path, "output6", "*.nii.gz")))
+    preds = sorted(glob.glob(os.path.join(root_path, "output", "*.nii.gz")))
     metrics_d = compute_nii_metrics(stage, masks, preds)
 
     # 生成统计值
-    excel_path = os.path.join(root_path, "metrics", "artery.xlsx")
+    excel_path = os.path.join(root_path, "metrics", "nnunetv2.xlsx")
     df = metrics_d.describe().loc[['mean', 'std']].T.apply(lambda x: round(x, 3))
     df['mean'] = df['mean'].astype(str)
     df['std'] = df['std'].astype(str)
@@ -368,7 +368,7 @@ def compute_single_metrics(root_path):
     df.to_excel(excel_path)  # 生成excel
 
     # 生成排序值
-    excel_path = os.path.join(root_path, "metrics", "artery_all.xlsx")
+    excel_path = os.path.join(root_path, "metrics", "nnunetv2_all.xlsx")
     metrics_d.to_excel(excel_path)  # 生成excel
 
 

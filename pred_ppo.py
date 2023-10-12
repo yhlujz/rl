@@ -142,12 +142,6 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device {device}\n')
 
-    """网络加载"""
-    from yunet import PolicyNet as PolicyNet
-    policyNet_path = '/workspace/data/rl/model/ppo_policy09080.pth'
-    policy_net = PolicyNet().to(device)
-    policy_net.load_state_dict(torch.load(policyNet_path, map_location=device))
-
     """数据json路径"""
     json_path = '/workspace/data/rl/json/rl6_new.json'
 
@@ -175,6 +169,7 @@ if __name__ == '__main__':
 
     """参数设置"""
     amp = True  # 是否使用混合精度训练和推断加速
+    state_channel = 3  # 状态图通道数，可选2，3
     state_size = [21, 21, 9]  # 状态图大小
     norm_method = 'norm'  # 归一化方法，可选：min_max, norm
     num_workers = 0  # 数据加载线程数
@@ -186,6 +181,12 @@ if __name__ == '__main__':
     out_reward_mode = 'small'  # 出边界奖励模式，可选：small, large, step，0
     val_certain = False  # 是否在验证时采用确定性策略，False代表采用随机采样策略
     val_spot_type = 'prob_spot'  # 设置验证起点类型，可选ori_spot，prob_spot
+
+    """网络加载"""
+    from yunet import PolicyNet as PolicyNet
+    policyNet_path = '/workspace/data/rl/model/ppo_policy09080.pth'
+    policy_net = PolicyNet(state_channel).to(device)
+    policy_net.load_state_dict(torch.load(policyNet_path, map_location=device))
 
     """初始化agent"""
     agent = PPOPredict(
