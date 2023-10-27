@@ -19,8 +19,8 @@ from monai.transforms import (
 )
 from monai.data import CacheDataset, DataLoader
 
-from sac import SAC
-from ct_env import CTEnv
+from yualg.sac import SAC
+from yuenv.ct_env import CTEnv
 
 
 class ReplayBuffer:

@@ -17,8 +17,8 @@ from monai.transforms import (
 )
 from monai.data import CacheDataset, DataLoader, decollate_batch
 
-from ppo import PPOPredict
-from ct_env import CTEnv
+from yualg.ppo import PPOPredict
+from yuenv.ct_env import CTEnv
 
 
 def predict(test_files,
