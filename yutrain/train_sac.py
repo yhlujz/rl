@@ -19,7 +19,7 @@ from monai.transforms import (
 )
 from monai.data import CacheDataset, DataLoader
 
-from yualg.sac import SAC
+from yualgo.sac import SAC
 from yuenv.ct_env import CTEnv
 
 

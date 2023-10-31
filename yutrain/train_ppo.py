@@ -18,7 +18,7 @@ from monai.transforms import (
 )
 from monai.data import CacheDataset, DataLoader
 
-from yualg.ppo import PPO
+from yualgo.ppo import PPO
 from yuenv.ct_env import CTEnv
 
 
@@ -202,7 +202,6 @@ def train(train_files,
                             action = agent.take_certain_action(state)
                         else:
                             action = agent.take_action(state)
-                        action = agent.take_action(state)
                         next_state, reward, done = env.step(action)
                         if reward_norm:  # 采用奖励标准化
                             reward = reward_normalizer(reward)

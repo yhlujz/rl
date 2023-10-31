@@ -1,12 +1,9 @@
 import torch
-import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import os
 import logging
 from datetime import datetime
-import collections
-import random
 
 from monai.utils import set_determinism
 from monai.transforms import (
@@ -19,33 +16,14 @@ from monai.transforms import (
 )
 from monai.data import CacheDataset, DataLoader
 
-from yualgo.d3qn import D3QN
-from yuenv.ct_env import CTEnv
-
-
-class ReplayBuffer:
-    ''' 经验回放池 '''
-    def __init__(self, capacity):
-        self.buffer = collections.deque(maxlen=capacity)  # 队列，先进先出
-
-    def add(self, state, action, reward, next_state, done):  # 将数据加入buffer
-        self.buffer.append((state, action, reward, next_state, done))
-
-    def sample(self, batch_size):  # 从buffer中采样数据，数量为batch_size
-        transitions = random.sample(self.buffer, batch_size)
-        state, action, reward, next_state, done = zip(*transitions)
-        return np.array(state), action, np.array(reward), np.array(next_state), done
-
-    def size(self):  # 目前buffer中数据的数量
-        return len(self.buffer)
+from yualgo.
+from yuenv.ct_env_step import CTEnvStep
 
 
 def train(train_files,
           val_files,
           agent,
-          buffer_size,
-          minimal_size,
-          batch_size,
+          state_channel,
           state_size,
           epochs,
           num_workers,
@@ -56,6 +34,8 @@ def train(train_files,
           reward_mode,
           out_mode,
           out_reward_mode,
+          train_certain,
+          val_certain,
           train_spot_type,
           val_spot_type,
           device,
@@ -96,9 +76,6 @@ def train(train_files,
     # 记录得到最佳评价指标的轮次
     best_dice_epoch = -1
 
-    # 初始化回放池
-    replay_buffer = ReplayBuffer(buffer_size)
-
     # 开始训练
     for epoch in range(max_epochs):
         agent.train()  # 网络设置为训练模式
@@ -116,44 +93,52 @@ def train(train_files,
                     batch_data["pred"].to(device),
                     batch_data["prob"].to(device),
                 )
-                env = CTEnv(images[0],
-                            masks[0],
-                            preds[0],
-                            probs[0][1],
-                            state_size,
-                            step_max,
-                            step_limit_max,
-                            state_mode,
-                            reward_mode,
-                            out_mode,
-                            out_reward_mode)  # 初始化环境
+                env = CTEnvStep(images[0],
+                                masks[0],
+                                preds[0],
+                                probs[0][1],
+                                state_channel,
+                                state_size,
+                                step_max,
+                                step_limit_max,
+                                state_mode,
+                                reward_mode,
+                                out_mode,
+                                out_reward_mode)  # 初始化环境
                 for _ in range(num_episodes):
                     episode_return = 0  # 记录一个序列的总回报
                     episode_length = 0  # 记录一个序列的总长度
-                    state = env.reset(spot_type=train_spot_type)  # 每个序列训练前先进行初始化操作
+                    transition_dict = {'states': [],
+                                       'actions': [],
+                                       'next_states': [],
+                                       'rewards': [],
+                                       'dones': []}
+                    state, cover, step = env.reset(spot_type=train_spot_type)  # 每个序列训练前先进行初始化操作
                     done = False
                     while not done:
-                        action = agent.take_action(state)
-                        next_state, reward, done = env.step(action)
-                        replay_buffer.add(state, action, reward, next_state, done)
+                        if train_certain:  # 采用确定性训练策略
+                            action = agent.take_certain_action(state, cover, step)
+                        else:
+                            action = agent.take_action(state, cover, step)
+                        next_state, next_cover, next_step, reward, done = env.step(action)
+                        transition_dict['states'].append(state)
+                        transition_dict['covers'].append(cover)
+                        transition_dict['steps'].append(step)
+                        transition_dict['actions'].append(action)
+                        transition_dict['next_states'].append(next_state)
+                        transition_dict['next_covers'].append(next_cover)
+                        transition_dict['next_steps'].append(next_step)
+                        transition_dict['rewards'].append(reward)
+                        transition_dict['dones'].append(done)
                         state = next_state
+                        cover = next_cover
+                        step = next_step
                         episode_return += reward
                         episode_length += 1
-                        # 当buffer数据的数量超过一定值后，才进行Q网络训练
-                        if replay_buffer.size() > minimal_size:
-                            b_s, b_a, b_r, b_ns, b_d = replay_buffer.sample(batch_size)
-                            transition_dict = {
-                                'states': b_s,
-                                'actions': b_a,
-                                'next_states': b_ns,
-                                'rewards': b_r,
-                                'dones': b_d
-                            }
-                            agent.update(transition_dict)  # 每个迭代更新一次
-                    agent.step_lr()
                     batch_return += episode_return
                     batch_length += episode_length
                     batch_dice += env.dice
+                    agent.update(transition_dict)  # 根据训练出的一条序列进行网络模型的更新
                 pbar.update(1)   # 进度条更新
                 batch_return /= num_episodes
                 batch_length /= num_episodes
@@ -165,13 +150,13 @@ def train(train_files,
         epoch_return /= n_train  # 计算一个epoch的平均回报
         epoch_length /= n_train  # 计算一个epoch的平均序列长度
         epoch_dice /= n_train  # 计算一个epoch的平均dice
-        lr = agent.get_lr()
+        actor_lr, critic_lr = agent.get_lr()
 
         # 记录训练集log
         logging.info(f'''
         epoch {epoch + 1}
         return: {epoch_return} length: {epoch_length} dice: {epoch_dice}
-        lr: {lr}''')
+        actor_lr: {actor_lr} critic_lr: {critic_lr}''')
         print(f"epoch {epoch + 1} return: {epoch_return} length: {epoch_length} dice: {epoch_dice}")
 
         # 验证及保存模型
@@ -187,23 +172,29 @@ def train(train_files,
                     val_data["pred"].to(device),
                     val_data["prob"].to(device),
                 )
-                env = CTEnv(images[0],
-                            masks[0],
-                            preds[0],
-                            probs[0][1],
-                            state_size,
-                            step_max,
-                            step_limit_max,
-                            state_mode,
-                            reward_mode,
-                            out_mode,
-                            out_reward_mode)  # 初始化环境
-                state = env.reset(spot_type=val_spot_type)
+                env = CTEnvStep(images[0],
+                                masks[0],
+                                preds[0],
+                                probs[0][1],
+                                state_channel,
+                                state_size,
+                                step_max,
+                                step_limit_max,
+                                state_mode,
+                                reward_mode,
+                                out_mode,
+                                out_reward_mode)  # 初始化环境
+                state, cover, step = env.reset(spot_type=val_spot_type)
                 done = False
                 while not done:
-                    action = agent.take_action(state)
-                    next_state, reward, done = env.step(action)
+                    if val_certain:  # 采用确定性验证策略
+                        action = agent.take_certain_action(state, cover, step)
+                    else:
+                        action = agent.take_action(state, cover, step)
+                    next_state, next_cover, next_step, reward, done = env.step(action)
                     state = next_state
+                    cover = next_cover
+                    step = next_step
                     val_return += reward
                     val_length += 1
                 val_dice += env.dice
@@ -225,13 +216,6 @@ def train(train_files,
 
 
 if __name__ == '__main__':
-    """网络选择"""
-    net_name = 'vanet'
-    if net_name == 'vanet':
-        from yunet import VANet
-    else:
-        print('error: the net is not exist!')
-
     """固定随机种子"""
     set_determinism(seed=0)
 
@@ -251,10 +235,11 @@ if __name__ == '__main__':
     date_time = datetime.now().strftime("%m%d")
 
     """设置模型保存路径"""
-    VANet_path = f'/workspace/data/rl/model/d3qn_va{date_time}{id}.pth'
+    valueNet_path = f'/workspace/data/rl/model/ppo_value{date_time}{id}.pth'
+    policyNet_path = f'/workspace/data/rl/model/ppo_policy{date_time}{id}.pth'
 
     """设置log保存路径"""
-    log_path = f'/workspace/data/rl/log/d3qn{date_time}{id}.log'
+    log_path = f'/workspace/data/rl/log/ppo{date_time}{id}.log'
 
     """读取json获取所有图像文件名"""
     train_images = []
@@ -287,67 +272,105 @@ if __name__ == '__main__':
                         force=True)  # 写入info级别以上的日志
 
     """参数设置"""
-    learning_rate = 1e-4  # 初始学习率
+    actor_lr = 1e-5  # 策略函数初始学习率
+    critic_lr = 1e-4  # 价值函数初始学习率
+    lr_decay = True  # 是否使用学习率衰减（线性衰减）
+    optimizer = 'AdamW'  # 优化器选用，可选：Adam, AdamW
     adam_eps = 1e-5  # adam优化器限制值
     gamma = 0.98  # 价值估计倍率
-    epsilon = 0.01  # 贪婪因子
-    target_update = 50  # 多少次迭代后同步两个网络参数
+    lmbda = 0.95  # 优势估计倍率
+    adv_norm = True  # 是否进行优势估计标准化
+    state_norm = False  # 是否使用状态标准化
+    reward_norm = False  # 是否使用奖励标准化
+    amp = True  # 是否使用混合精度训练和推断加速
+    agent_epochs = 10  # 每个序列梯度下降迭代次数
+    batch_size = 0  # 若使用minibatch方式进行更新，则需设置为非0值
+    eps = 0.2  # ppo算法限制值
+    entropy_coef = 0.01  # 策略熵系数，可设置为0
 
-    buffer_size = 125000  # 回放池大小
-    minimal_size = 25000  # 回放池最小大小
-    batch_size = 1600  # 每次迭代的batch大小
+    state_channel = 3  # 状态图通道数，可选2，3
     state_size = [21, 21, 9]  # 状态图大小
-    epochs = 100  # 总循环次数
+    norm_method = 'norm'  # 归一化方法，可选：min_max, norm
+    epochs = 500  # 总循环次数
     num_workers = 0  # 数据加载线程数
     step_max = 5000  # 序列最大长度
-    step_limit_max = 500  # 序列重复标注最大长度
+    step_limit_max = 500  # 限制无新标注的探索步数
     num_episodes = 1  # 每条序列训练次数
     state_mode = 'pre'  # 状态模式，可选：pre(先标注再返回状态), post(返回状态后再标注)
     reward_mode = 'dice_inc_const'  # 奖励模式，可选：dice_inc, const, dice_inc_const
     out_mode = False  # 出边界是否停止，True则停止
     out_reward_mode = 'small'  # 出边界奖励模式，可选：small, large, step，0
-    total_steps = epochs * len(train_files) * num_episodes  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
-    train_spot_type = 'ori_spot'  # 设置训练起点类型，可选ori_spot，prob_spot
-    val_spot_type = 'prob_spot'  # 设置验证起点类型
+    total_steps = epochs * len(train_files) * num_episodes * agent_epochs  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
+    train_certain = False  # 是否在训练时采用确定性策略，False代表采用随机采样策略
+    val_certain = False  # 是否在验证时采用确定性策略，False代表采用随机采样策略
+    val_update = False  # 是否经过验证集后才真正更新网络参数
+    train_spot_type = 'max_prob_spot'  # 设置训练起点类型，可选random_spot，max_prob_spot
+    val_spot_type = 'max_prob_spot'  # 设置验证起点类型
+
+    """网络选择"""
+    net_name = 'pvnet'  # 可选：pvnet, pvnet2, resnet
+    if net_name == 'pvnet':
+        from yunet import ValueNet as ValueNet, PolicyNet as PolicyNet
+    elif net_name == 'pvnet2':
+        from yunet import ValueNet2 as ValueNet, PolicyNet2 as PolicyNet
+    elif net_name == 'resnet':
+        from yunet import ValueResNet as ValueNet, PolicyResNet as PolicyNet
+    else:
+        print('error: the net is not exist!')
+
+    policy_net = PolicyNet(state_channel).to(device)
+    value_net = ValueNet(state_channel).to(device)
 
     """记录参数信息"""
     logging.info(f'''
     net_name = {net_name}
     json_path = {json_path}
     GPU_id = {GPU_id}
-    lr = {learning_rate}
-    adam_eps = {adam_eps}
-    epsilon = {epsilon}
-    target_update = {target_update}
-    buffer_size = {buffer_size}  minimal_size = {minimal_size}
+    actor_lr = {actor_lr}  critic_lr = {critic_lr}
+    lr_decay = {lr_decay}
+    optimizer = {optimizer}  adam_eps = {adam_eps}
+    agent_epochs = {agent_epochs}
     batch_size = {batch_size}
+    adv_norm = {adv_norm}  entropy_coef = {entropy_coef}
+    amp = {amp}
     step_max = {step_max}  step_limit_max = {step_limit_max}
     num_episodes = {num_episodes}
-    state_size = {state_size}
-    state_mode = {state_mode}
-    reward_mode = {reward_mode}
+    state_channel = {state_channel}  state_size = {state_size}
+    norm_method = {norm_method}
+    state_mode = {state_mode}  state_norm = {state_norm}
+    reward_mode = {reward_mode}  reward_norm = {reward_norm}
     out_mode = {out_mode}  out_reward_mode = {out_reward_mode}
+    train_certain = {train_certain}
+    val_certain = {val_certain}  val_update = {val_update}
     train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}''')
 
     """初始化agent"""
-    agent = D3QN(device=device,
-                 va_net=VANet(),
-                 learning_rate=learning_rate,
-                 total_steps=total_steps,
-                 adam_eps=adam_eps,
-                 gamma=gamma,
-                 epsilon=epsilon,
-                 target_update=target_update,
-                 VANet_path=VANet_path,
-                 )
+    agent = PPO(policy_net=policy_net,
+                value_net=value_net,
+                actor_lr=actor_lr,
+                critic_lr=critic_lr,
+                lr_decay=lr_decay,
+                total_steps=total_steps,
+                optimizer=optimizer,
+                adam_eps=adam_eps,
+                lmbda=lmbda,
+                agent_epochs=agent_epochs,
+                batch_size=batch_size,
+                eps=eps,
+                entropy_coef=entropy_coef,
+                gamma=gamma,
+                adv_norm=adv_norm,
+                amp=amp,
+                device=device,
+                valueNet_path=valueNet_path,
+                policyNet_path=policyNet_path,
+                )
 
     """训练"""
     train(train_files=train_files,
           val_files=val_files,
           agent=agent,
-          buffer_size=buffer_size,
-          minimal_size=minimal_size,
-          batch_size=batch_size,
+          state_channel=state_channel,
           state_size=state_size,
           epochs=epochs,
           num_workers=num_workers,
@@ -358,6 +381,8 @@ if __name__ == '__main__':
           reward_mode=reward_mode,
           out_mode=out_mode,
           out_reward_mode=out_reward_mode,
+          train_certain=train_certain,
+          val_certain=val_certain,
           train_spot_type=train_spot_type,
           val_spot_type=val_spot_type,
           device=device,

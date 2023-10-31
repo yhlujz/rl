@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 
 
-class CTEnv:
+class CTEnvStep:
     """定义CT图像环境"""
     def __init__(self,
                  image,
@@ -58,21 +58,21 @@ class CTEnv:
         spots = torch.nonzero(self.mask_padding)
         self.mask_spots_n = len(spots)  # 记录mask中标注点的数量
         i = np.random.randint(self.mask_spots_n)
-        self.ori_spot = spots[i].tolist()  # 从标注中随机选取一点作为起点
-        self.spot = self.ori_spot  # 初始化智能体位置坐标
+        self.random_spot = spots[i].tolist()  # 从标注中随机选取一点作为起点
+        self.spot = self.random_spot  # 初始化智能体位置坐标
 
         # 根据已预测概率图初始化起点(使用概率最大点的坐标)
-        self.prob_spot = torch.nonzero(
+        self.max_prob_spot = torch.nonzero(
             self.prob_padding == torch.max(self.prob_padding))[0].tolist()
 
     def reset(self, spot_type):
         """回归初始状态（预测图只包含随机起点的状态）并返回初始状态值"""
         self.step_n = 1  # 步数置1
         self.step_limit_n = 0  # 无新标注步数置0
-        if spot_type == 'ori_spot':
-            self.spot = self.ori_spot  # 重新初始化智能体位置坐标
-        elif spot_type == 'prob_spot':
-            self.spot = self.prob_spot
+        if spot_type == 'random_spot':
+            self.spot = self.random_spot  # 重新初始化智能体位置坐标
+        elif spot_type == 'max_prob_spot':
+            self.spot = self.max_prob_spot
         else:
             print('error: invalid spot_type!')
         self.pred_padding = torch.zeros_like(self.mask_padding).int()  # 初始化预测图像
@@ -83,7 +83,7 @@ class CTEnv:
             next_state = self.spot_to_state()  # pre模式先标注后返回状态
         self.dice = self.compute_dice()
         self.cover = self.pred_cover()
-        return next_state  # 返回下一个状态图
+        return next_state, self.cover, (self.step_max - self.step_n) / self.step_max  # 返回下一个状态图、dice值和剩余步数
 
     def spot_to_state(self):
         """通过spot和给定的state图像大小计算返回相应state图像"""
@@ -118,9 +118,7 @@ class CTEnv:
                 done = True
             next_state = self.spot_to_state()  # 超出边界时状态图不移动
             # 根据不同模式计算超出边界时的reward
-            if self.out_reward_mode == 'step':
-                reward = -self.step_n  # 超出边界时奖励为当前动作数的负值
-            elif self.out_reward_mode == 'small':
+            if self.out_reward_mode == 'small':
                 reward = -1  # 超出边界时奖励为-1
             elif self.out_reward_mode == 'large':
                 reward = -100  # 超出边界时奖励为-100
@@ -159,7 +157,7 @@ class CTEnv:
             done = True
         if self.step_n >= self.step_max:
             done = True
-        return next_state, reward, done
+        return next_state, reward, done, self.cover, (self.step_max - self.step_n) / self.step_max
 
     def spot_is_out(self):
         """判断当前spot是否超出padding前的实际边界，超出边界的点赋值为边界值"""
@@ -193,8 +191,9 @@ class CTEnv:
                 (self.pred_padding.sum() + self.mask_padding.sum())).item()
 
     def pred_cover(self):
-        """计算当前预测图像对已预测图像的覆盖值"""
-        return (self.pred_padding & self.preded_padding).sum()
+        """计算当前预测图像对已预测图像的覆盖值dice"""
+        return (2 * (self.pred_padding & self.preded_padding).sum() /
+                (self.pred_padding.sum() + self.preded_padding.sum())).item()
 
     def spot_to_const_reward(self):
         """reward模式为const时，通过当前spot得到对应的reward"""
