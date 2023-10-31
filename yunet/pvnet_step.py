@@ -40,7 +40,7 @@ class Down(nn.Module):
         return self.maxpool_conv(x)
 
 
-class PolicyNet(nn.Module):
+class PolicyNetStep(nn.Module):
     """策略网络：输入21X21X9Xc的状态，输出6个动作的概率"""
 
     def __init__(self, state_channel):
@@ -51,7 +51,7 @@ class PolicyNet(nn.Module):
         self.down2 = Down(16, 32)  # 5x5x2x32=1600
         self.fc1 = nn.Linear(1600, 256)
         self.fc2 = nn.Linear(256, 64)
-        self.fc3 = nn.Linear(64, 6)
+        self.fc3 = nn.Linear(66, 6)
         # 初始化网络参数
         for m in self.modules():
             if isinstance(m, nn.Conv3d):
@@ -60,17 +60,17 @@ class PolicyNet(nn.Module):
         orthogonal_init(self.fc2)
         orthogonal_init(self.fc3, gain=0.01)
 
-    def forward(self, x):
+    def forward(self, x, y, z):
         x1 = self.inc(x)
         x2 = self.down1(x1)
         x3 = self.down2(x2).view(-1, 1600)  # 展平为一维张量
         x4 = torch.tanh(self.fc1(x3))
         x5 = torch.tanh(self.fc2(x4))
-        x6 = torch.softmax(self.fc3(x5), dim=1)
+        x6 = torch.softmax(self.fc3(torch.cat((x5, y, z), dim=1)), dim=1)
         return x6
 
 
-class ValueNet(nn.Module):
+class ValueNetStep(nn.Module):
     """价值网络：输入21X21X9Xc的状态，输出1个当前状态的价值"""
 
     def __init__(self, state_channel):
@@ -90,11 +90,11 @@ class ValueNet(nn.Module):
         orthogonal_init(self.fc2)
         orthogonal_init(self.fc3)
 
-    def forward(self, x):
+    def forward(self, x, y, z):
         x1 = self.inc(x)
         x2 = self.down1(x1)
         x3 = self.down2(x2).view(-1, 1600)  # 展平为一维张量
         x4 = torch.tanh(self.fc1(x3))
         x5 = torch.tanh(self.fc2(x4))
-        x6 = self.fc3(x5)
+        x6 = self.fc3(torch.cat((x5, y, z), dim=1))
         return x6

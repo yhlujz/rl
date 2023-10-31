@@ -16,8 +16,9 @@ from monai.transforms import (
 )
 from monai.data import CacheDataset, DataLoader
 
-from yualgo.
+from yualgo.ppo_step import PPOStep
 from yuenv.ct_env_step import CTEnvStep
+from yunet import ValueNetStep as ValueNet, PolicyNetStep as PolicyNet
 
 
 def train(train_files,
@@ -308,16 +309,7 @@ if __name__ == '__main__':
     val_spot_type = 'max_prob_spot'  # 设置验证起点类型
 
     """网络选择"""
-    net_name = 'pvnet'  # 可选：pvnet, pvnet2, resnet
-    if net_name == 'pvnet':
-        from yunet import ValueNet as ValueNet, PolicyNet as PolicyNet
-    elif net_name == 'pvnet2':
-        from yunet import ValueNet2 as ValueNet, PolicyNet2 as PolicyNet
-    elif net_name == 'resnet':
-        from yunet import ValueResNet as ValueNet, PolicyResNet as PolicyNet
-    else:
-        print('error: the net is not exist!')
-
+    net_name = 'pvnet_step'
     policy_net = PolicyNet(state_channel).to(device)
     value_net = ValueNet(state_channel).to(device)
 
@@ -345,26 +337,26 @@ if __name__ == '__main__':
     train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}''')
 
     """初始化agent"""
-    agent = PPO(policy_net=policy_net,
-                value_net=value_net,
-                actor_lr=actor_lr,
-                critic_lr=critic_lr,
-                lr_decay=lr_decay,
-                total_steps=total_steps,
-                optimizer=optimizer,
-                adam_eps=adam_eps,
-                lmbda=lmbda,
-                agent_epochs=agent_epochs,
-                batch_size=batch_size,
-                eps=eps,
-                entropy_coef=entropy_coef,
-                gamma=gamma,
-                adv_norm=adv_norm,
-                amp=amp,
-                device=device,
-                valueNet_path=valueNet_path,
-                policyNet_path=policyNet_path,
-                )
+    agent = PPOStep(policy_net=policy_net,
+                    value_net=value_net,
+                    actor_lr=actor_lr,
+                    critic_lr=critic_lr,
+                    lr_decay=lr_decay,
+                    total_steps=total_steps,
+                    optimizer=optimizer,
+                    adam_eps=adam_eps,
+                    lmbda=lmbda,
+                    agent_epochs=agent_epochs,
+                    batch_size=batch_size,
+                    eps=eps,
+                    entropy_coef=entropy_coef,
+                    gamma=gamma,
+                    adv_norm=adv_norm,
+                    amp=amp,
+                    device=device,
+                    valueNet_path=valueNet_path,
+                    policyNet_path=policyNet_path,
+                    )
 
     """训练"""
     train(train_files=train_files,
