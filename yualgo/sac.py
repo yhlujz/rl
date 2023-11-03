@@ -91,23 +91,25 @@ class SAC:
         alpha_lr = self.log_alpha_scheduler.get_last_lr()
         return actor_lr, critic_1_lr, critic_2_lr, alpha_lr
 
-    def take_action(self, state):
+    def take_action(self, state, cover, step):
         """根据策略网络采样动作，一般用于训练"""
         state = torch.tensor(np.array([state]), dtype=torch.float).to(self.device)  # 增加一个batch维度
+        cover = torch.tensor(np.array([cover]), dtype=torch.float).view(-1, 1).to(self.device)
+        step = torch.tensor(np.array([step]), dtype=torch.float).view(-1, 1).to(self.device)
         with torch.cuda.amp.autocast():
-            probs = self.actor(state)
+            probs = self.actor(state, cover, step)
         action_dist = torch.distributions.Categorical(probs)
         action = action_dist.sample()
         return action.item()
 
-    def calc_target(self, rewards, next_states, dones):
+    def calc_target(self, rewards, next_states, next_covers, next_steps, dones):
         """计算目标Q值,直接用策略网络的输出概率进行期望计算"""
         with torch.cuda.amp.autocast():
-            next_probs = self.actor(next_states)
+            next_probs = self.actor(next_states, next_covers, next_steps)
             next_log_probs = torch.log(next_probs + 1e-8)
             entropy = -torch.sum(next_probs * next_log_probs, dim=1, keepdim=True)
-            q1_value = self.target_critic_1(next_states)
-            q2_value = self.target_critic_2(next_states)
+            q1_value = self.target_critic_1(next_states, next_covers, next_steps)
+            q2_value = self.target_critic_2(next_states, next_covers, next_steps)
             min_qvalue = torch.sum(next_probs * torch.min(q1_value, q2_value),
                                    dim=1,
                                    keepdim=True)
@@ -126,22 +128,27 @@ class SAC:
         """根据存入字典列表的数据更新策略网络和价值网络"""
         states = torch.tensor(transition_dict['states'],
                               dtype=torch.float).to(self.device)
-        actions = torch.tensor(transition_dict['actions']).view(-1, 1).to(
-            self.device)  # 动作不再是float类型
+        covers = torch.tensor(transition_dict['covers']).view(-1, 1).to(self.device)
+        steps = torch.tensor(transition_dict['steps']).view(-1, 1).to(self.device)
+        actions = torch.tensor(transition_dict['actions']).view(-1, 1).to(self.device)
         rewards = torch.tensor(transition_dict['rewards'],
                                dtype=torch.float).view(-1, 1).to(self.device)
         next_states = torch.tensor(transition_dict['next_states'],
                                    dtype=torch.float).to(self.device)
+        next_covers = torch.tensor(transition_dict['next_covers'],
+                                   dtype=torch.float).view(-1, 1).to(self.device)
+        next_steps = torch.tensor(transition_dict['next_steps'],
+                                  dtype=torch.float).view(-1, 1).to(self.device)
         dones = torch.tensor(transition_dict['dones'],
                              dtype=torch.float).view(-1, 1).to(self.device)
 
         # 更新两个Q网络
         with torch.cuda.amp.autocast():
-            td_target = self.calc_target(rewards, next_states, dones)
-            critic_1_q_values = self.critic_1(states).gather(1, actions)
+            td_target = self.calc_target(rewards, next_states, next_covers, next_steps, dones)
+            critic_1_q_values = self.critic_1(states, covers, steps).gather(1, actions)
             critic_1_loss = torch.mean(
                 F.mse_loss(critic_1_q_values, td_target.detach()))
-            critic_2_q_values = self.critic_2(states).gather(1, actions)
+            critic_2_q_values = self.critic_2(states, covers, steps).gather(1, actions)
             critic_2_loss = torch.mean(
                 F.mse_loss(critic_2_q_values, td_target.detach()))
 
@@ -161,12 +168,12 @@ class SAC:
 
         # 更新策略网络
         with torch.cuda.amp.autocast():
-            probs = self.actor(states)
+            probs = self.actor(states, covers, steps)
             log_probs = torch.log(probs + 1e-8)
             # 直接根据概率计算熵
             entropy = -torch.sum(probs * log_probs, dim=1, keepdim=True)
-            q1_value = self.critic_1(states)
-            q2_value = self.critic_2(states)
+            q1_value = self.critic_1(states, covers, steps)
+            q2_value = self.critic_2(states, covers, steps)
             min_qvalue = torch.sum(probs * torch.min(q1_value, q2_value),
                                    dim=1,
                                    keepdim=True)  # 直接根据概率计算期望

@@ -67,7 +67,7 @@ class CTEnvStep:
 
     def reset(self, spot_type):
         """回归初始状态（预测图只包含随机起点的状态）并返回初始状态值"""
-        self.step_n = 1  # 步数置1
+        self.step_n = 0  # 步数置0
         self.step_limit_n = 0  # 无新标注步数置0
         if spot_type == 'random_spot':
             self.spot = self.random_spot  # 重新初始化智能体位置坐标
@@ -157,7 +157,7 @@ class CTEnvStep:
             done = True
         if self.step_n >= self.step_max:
             done = True
-        return next_state, reward, done, self.cover, (self.step_max - self.step_n) / self.step_max
+        return next_state, self.cover, (self.step_max - self.step_n) / self.step_max, reward, done
 
     def spot_is_out(self):
         """判断当前spot是否超出padding前的实际边界，超出边界的点赋值为边界值"""

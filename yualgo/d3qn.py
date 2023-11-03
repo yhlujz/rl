@@ -49,34 +49,42 @@ class D3QN:
         lr = self.scheduler.get_last_lr()
         return lr
 
-    def take_action(self, state):
+    def take_action(self, state, cover, step):
         """根据q值网络确定动作，并使用贪婪方式"""
         if np.random.random() < self.epsilon:
             action = np.random.randint(6)  # 一共6个动作
         else:
             state = torch.tensor(np.array([state]), dtype=torch.float).to(self.device)
+            cover = torch.tensor(np.array([cover]), dtype=torch.float).view(-1, 1).to(self.device)
+            step = torch.tensor(np.array([step]), dtype=torch.float).view(-1, 1).to(self.device)
             with torch.cuda.amp.autocast():
-                action = self.q_net(state).argmax().item()
+                action = self.q_net(state, cover, step).argmax().item()
         return action
 
     def update(self, transition_dict):
         """根据存入字典列表的数据更新q值网络"""
         states = torch.tensor(transition_dict['states'],
                               dtype=torch.float).to(self.device)
-        actions = torch.tensor(transition_dict['actions']).view(-1, 1).to(
-            self.device)
+        covers = torch.tensor(transition_dict['covers']).view(-1, 1).to(self.device)
+        steps = torch.tensor(transition_dict['steps']).view(-1, 1).to(self.device)
+        actions = torch.tensor(transition_dict['actions']).view(-1, 1).to(self.device)
         rewards = torch.tensor(transition_dict['rewards'],
                                dtype=torch.float).view(-1, 1).to(self.device)
         next_states = torch.tensor(transition_dict['next_states'],
                                    dtype=torch.float).to(self.device)
+        next_covers = torch.tensor(transition_dict['next_covers'],
+                                   dtype=torch.float).view(-1, 1).to(self.device)
+        next_steps = torch.tensor(transition_dict['next_steps'],
+                                  dtype=torch.float).view(-1, 1).to(self.device)
         dones = torch.tensor(transition_dict['dones'],
                              dtype=torch.float).view(-1, 1).to(self.device)
 
         with torch.cuda.amp.autocast():
-            q_values = self.q_net(states).gather(1, actions)
-            max_action = self.q_net(next_states).max(1)[1].view(-1, 1)
-            max_next_q_values = self.target_q_net(next_states).gather(
-                1, max_action)
+            q_values = self.q_net(states, covers, steps).gather(1, actions)
+            max_action = self.q_net(next_states, next_covers,
+                                    next_steps).max(1)[1].view(-1, 1)
+            max_next_q_values = self.target_q_net(next_states, next_covers,
+                                                  next_steps).gather(1, max_action)
             q_targets = rewards + self.gamma * max_next_q_values * (1 - dones)
             dqn_loss = torch.mean(F.mse_loss(q_values, q_targets))
 

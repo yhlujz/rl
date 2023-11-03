@@ -81,7 +81,7 @@ class ValueNetStep(nn.Module):
         self.down2 = Down(16, 32)
         self.fc1 = nn.Linear(1600, 256)
         self.fc2 = nn.Linear(256, 64)
-        self.fc3 = nn.Linear(64, 1)
+        self.fc3 = nn.Linear(66, 1)
         # 初始化网络参数
         for m in self.modules():
             if isinstance(m, nn.Conv3d):

@@ -1,14 +1,10 @@
 import torch
 import numpy as np
-import pandas as pd
 from tqdm import tqdm
-import os
 import logging
-from datetime import datetime
 import collections
 import random
 
-from monai.utils import set_determinism
 from monai.transforms import (
     Compose,
     LoadImaged,
@@ -19,47 +15,49 @@ from monai.transforms import (
 )
 from monai.data import CacheDataset, DataLoader
 
-from yualgo.d3qn import D3QN
-from yuenv.ct_env import CTEnv
-
 
 class ReplayBuffer:
     ''' 经验回放池 '''
     def __init__(self, capacity):
         self.buffer = collections.deque(maxlen=capacity)  # 队列，先进先出
 
-    def add(self, state, action, reward, next_state, done):  # 将数据加入buffer
-        self.buffer.append((state, action, reward, next_state, done))
+    def add(self, state, cover, step, action, next_state,
+            next_cover, next_step, reward, done):  # 将数据加入buffer
+        self.buffer.append((state, cover, step, action, next_state,
+                            next_cover, next_step, reward, done))
 
     def sample(self, batch_size):  # 从buffer中采样数据，数量为batch_size
         transitions = random.sample(self.buffer, batch_size)
-        state, action, reward, next_state, done = zip(*transitions)
-        return np.array(state), action, np.array(reward), np.array(next_state), done
+        (state, cover, step, action, next_state,
+         next_cover, next_step, reward, done) = zip(*transitions)
+        return (np.array(state), cover, step, action, np.array(next_state),
+                next_cover, next_step, np.array(reward), done)
 
     def size(self):  # 目前buffer中数据的数量
         return len(self.buffer)
 
 
-def train(train_files,
-          val_files,
-          agent,
-          buffer_size,
-          minimal_size,
-          batch_size,
-          state_size,
-          epochs,
-          num_workers,
-          step_max,
-          step_limit_max,
-          num_episodes,
-          state_mode,
-          reward_mode,
-          out_mode,
-          out_reward_mode,
-          train_spot_type,
-          val_spot_type,
-          device,
-          ):
+def train_d3qn(train_files,
+               val_files,
+               agent,
+               CTEnv,
+               buffer_size,
+               minimal_size,
+               batch_size,
+               state_size,
+               epochs,
+               num_workers,
+               step_max,
+               step_limit_max,
+               num_episodes,
+               state_mode,
+               reward_mode,
+               out_mode,
+               out_reward_mode,
+               train_spot_type,
+               val_spot_type,
+               device,
+               ):
     """训练"""
 
     # 定义图像前处理规则
@@ -130,22 +128,27 @@ def train(train_files,
                 for _ in range(num_episodes):
                     episode_return = 0  # 记录一个序列的总回报
                     episode_length = 0  # 记录一个序列的总长度
-                    state = env.reset(spot_type=train_spot_type)  # 每个序列训练前先进行初始化操作
+                    state, cover, step = env.reset(spot_type=train_spot_type)  # 每个序列训练前先进行初始化操作
                     done = False
                     while not done:
-                        action = agent.take_action(state)
-                        next_state, reward, done = env.step(action)
-                        replay_buffer.add(state, action, reward, next_state, done)
+                        action = agent.take_action(state, cover, step)
+                        next_state, next_cover, next_step, reward, done = env.step(action)
+                        replay_buffer.add(state, cover, step, action, next_state,
+                                          next_cover, next_step, reward, done)
                         state = next_state
                         episode_return += reward
                         episode_length += 1
-                        # 当buffer数据的数量超过一定值后，才进行Q网络训练
+                        # 当buffer数据的数量超过一定值后，才进行训练
                         if replay_buffer.size() > minimal_size:
-                            b_s, b_a, b_r, b_ns, b_d = replay_buffer.sample(batch_size)
+                            b_s, b_c, b_st, b_a, b_ns, b_nc, b_nst, b_r, b_d = replay_buffer.sample(batch_size)
                             transition_dict = {
                                 'states': b_s,
+                                'covers': b_c,
+                                'steps': b_st,
                                 'actions': b_a,
                                 'next_states': b_ns,
+                                'next_covers': b_nc,
+                                'next_steps': b_nst,
                                 'rewards': b_r,
                                 'dones': b_d
                             }
@@ -198,12 +201,14 @@ def train(train_files,
                             reward_mode,
                             out_mode,
                             out_reward_mode)  # 初始化环境
-                state = env.reset(spot_type=val_spot_type)
+                state, cover, step = env.reset(spot_type=val_spot_type)
                 done = False
                 while not done:
-                    action = agent.take_action(state)
-                    next_state, reward, done = env.step(action)
+                    action = agent.take_action(state, cover, step)
+                    next_state, next_cover, next_step, reward, done = env.step(action)
                     state = next_state
+                    cover = next_cover
+                    step = next_step
                     val_return += reward
                     val_length += 1
                 val_dice += env.dice
@@ -222,143 +227,3 @@ def train(train_files,
         dice: {val_dice} length: {val_length} return: {val_return}
         best dice {best_dice} at epoch {best_dice_epoch}''')
         print(f"val epoch {epoch + 1} dice: {val_dice} / best dice {best_dice} at epoch {best_dice_epoch}")
-
-
-if __name__ == '__main__':
-    """网络选择"""
-    net_name = 'vanet'
-    if net_name == 'vanet':
-        from yunet import VANet
-    else:
-        print('error: the net is not exist!')
-
-    """固定随机种子"""
-    set_determinism(seed=0)
-
-    """数据json路径"""
-    json_path = '/workspace/data/rl/json/rl6_new.json'
-
-    """训练编号"""
-    id = '0'
-
-    """设置GPU"""
-    GPU_id = '0'
-    os.environ["CUDA_VISIBLE_DEVICES"] = GPU_id
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f'Using device {device}\n')
-
-    """获取当前日期"""
-    date_time = datetime.now().strftime("%m%d")
-
-    """设置模型保存路径"""
-    VANet_path = f'/workspace/data/rl/model/d3qn_va{date_time}{id}.pth'
-
-    """设置log保存路径"""
-    log_path = f'/workspace/data/rl/log/d3qn{date_time}{id}.log'
-
-    """读取json获取所有图像文件名"""
-    train_images = []
-    train_masks = []
-    train_preds = []
-    train_probs = []
-    df = pd.read_json(json_path)
-    for _, row in tqdm(df.iterrows()):
-        if row['dataset'] == 'train':
-            train_images.append(row['image_path'])
-            train_masks.append(row['mask_path'])
-            train_preds.append(row['pred_path'])
-            train_probs.append(row['prob_path'])
-
-    """制作文件名字典（以便后面使用字典制作数据集）"""
-    data_dicts = [{"image": image_name, "mask": mask_name,
-                   "pred": pred_name, "prob": prob_name}
-                  for image_name, mask_name, pred_name, prob_name
-                  in zip(train_images, train_masks, train_preds, train_probs)]
-
-    """划分得到训练集字典和验证集字典"""
-    val_len = round(len(df) / 10)
-    train_files, val_files = data_dicts[:-val_len], data_dicts[-val_len:]
-
-    """设置日志写入规则"""
-    logging.basicConfig(level=logging.INFO,
-                        filename=log_path,
-                        filemode='a',
-                        format='%(levelname)s: %(message)s',
-                        force=True)  # 写入info级别以上的日志
-
-    """参数设置"""
-    learning_rate = 1e-4  # 初始学习率
-    adam_eps = 1e-5  # adam优化器限制值
-    gamma = 0.98  # 价值估计倍率
-    epsilon = 0.01  # 贪婪因子
-    target_update = 50  # 多少次迭代后同步两个网络参数
-
-    buffer_size = 125000  # 回放池大小
-    minimal_size = 25000  # 回放池最小大小
-    batch_size = 1600  # 每次迭代的batch大小
-    state_size = [21, 21, 9]  # 状态图大小
-    epochs = 100  # 总循环次数
-    num_workers = 0  # 数据加载线程数
-    step_max = 5000  # 序列最大长度
-    step_limit_max = 500  # 序列重复标注最大长度
-    num_episodes = 1  # 每条序列训练次数
-    state_mode = 'pre'  # 状态模式，可选：pre(先标注再返回状态), post(返回状态后再标注)
-    reward_mode = 'dice_inc_const'  # 奖励模式，可选：dice_inc, const, dice_inc_const
-    out_mode = False  # 出边界是否停止，True则停止
-    out_reward_mode = 'small'  # 出边界奖励模式，可选：small, large, step，0
-    total_steps = epochs * len(train_files) * num_episodes  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
-    train_spot_type = 'ori_spot'  # 设置训练起点类型，可选ori_spot，prob_spot
-    val_spot_type = 'prob_spot'  # 设置验证起点类型
-
-    """记录参数信息"""
-    logging.info(f'''
-    net_name = {net_name}
-    json_path = {json_path}
-    GPU_id = {GPU_id}
-    lr = {learning_rate}
-    adam_eps = {adam_eps}
-    epsilon = {epsilon}
-    target_update = {target_update}
-    buffer_size = {buffer_size}  minimal_size = {minimal_size}
-    batch_size = {batch_size}
-    step_max = {step_max}  step_limit_max = {step_limit_max}
-    num_episodes = {num_episodes}
-    state_size = {state_size}
-    state_mode = {state_mode}
-    reward_mode = {reward_mode}
-    out_mode = {out_mode}  out_reward_mode = {out_reward_mode}
-    train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}''')
-
-    """初始化agent"""
-    agent = D3QN(device=device,
-                 va_net=VANet(),
-                 learning_rate=learning_rate,
-                 total_steps=total_steps,
-                 adam_eps=adam_eps,
-                 gamma=gamma,
-                 epsilon=epsilon,
-                 target_update=target_update,
-                 VANet_path=VANet_path,
-                 )
-
-    """训练"""
-    train(train_files=train_files,
-          val_files=val_files,
-          agent=agent,
-          buffer_size=buffer_size,
-          minimal_size=minimal_size,
-          batch_size=batch_size,
-          state_size=state_size,
-          epochs=epochs,
-          num_workers=num_workers,
-          step_max=step_max,
-          step_limit_max=step_limit_max,
-          num_episodes=num_episodes,
-          state_mode=state_mode,
-          reward_mode=reward_mode,
-          out_mode=out_mode,
-          out_reward_mode=out_reward_mode,
-          train_spot_type=train_spot_type,
-          val_spot_type=val_spot_type,
-          device=device,
-          )

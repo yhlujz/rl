@@ -21,22 +21,22 @@ from yualgo.ppo import PPOPredict
 from yuenv.ct_env import CTEnv
 
 
-def predict(test_files,
-            agent,
-            state_size,
-            norm_method,
-            num_workers,
-            step_max,
-            step_limit_max,
-            state_mode,
-            reward_mode,
-            out_mode,
-            out_reward_mode,
-            val_certain,
-            val_spot_type,
-            device,
-            output_path,
-            ):
+def pred_ppo(test_files,
+             agent,
+             state_size,
+             norm_method,
+             num_workers,
+             step_max,
+             step_limit_max,
+             state_mode,
+             reward_mode,
+             out_mode,
+             out_reward_mode,
+             val_certain,
+             val_spot_type,
+             device,
+             output_path,
+             ):
     """预测"""
 
     agent.eval()  # 网络设置为验证模式
