@@ -196,7 +196,7 @@ if __name__ == '__main__':
     )
 
     """预测"""
-    predict(
+    pred_ppo(
         test_files=data_dicts,
         agent=agent,
         state_size=state_size,

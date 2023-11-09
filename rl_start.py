@@ -55,10 +55,10 @@ if __name__ == '__main__':
 
     """必要参数设置"""
     # 训练编号
-    id = '6'
+    id = '7'
 
     # 设置GPU
-    GPU_id = '6'
+    GPU_id = '7'
     os.environ["CUDA_VISIBLE_DEVICES"] = GPU_id
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device {device}\n')
@@ -79,7 +79,7 @@ if __name__ == '__main__':
     algo = 'd3qn'
 
     # 网络选择
-    net_name = 'pvnet_step'
+    net_name = 'vanet'
 
     # 设置模型保存路径
     valueNet_path = f'/workspace/data/rl/model/{algo}_value{date_time}{id}.pth'
@@ -290,6 +290,7 @@ if __name__ == '__main__':
                    buffer_size=buffer_size,
                    minimal_size=minimal_size,
                    batch_size=batch_size,
+                   state_channel=state_channel,
                    state_size=state_size,
                    epochs=epochs,
                    num_workers=num_workers,
@@ -325,6 +326,7 @@ if __name__ == '__main__':
                   buffer_size=buffer_size,
                   minimal_size=minimal_size,
                   batch_size=batch_size,
+                  state_channel=state_channel,
                   state_size=state_size,
                   epochs=epochs,
                   num_workers=num_workers,
