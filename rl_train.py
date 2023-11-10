@@ -18,9 +18,6 @@ from yunet import PolicyNetStep, ValueNetStep, VANet
 # 导入训练流程
 from yutrain import train_d3qn, train_ppo_step, train_sac
 
-# 导入预测流程
-from yupred import pred_ppo
-
 
 def divide_dataset(json_path):
     """划分数据集"""
@@ -38,7 +35,7 @@ def divide_dataset(json_path):
             train_preds.append(row['pred_path'])
             train_probs.append(row['prob_path'])
 
-    # 制作文件名字典（以便后面使用字典制作数据集
+    # 制作文件名字典（以便后面使用字典制作数据集）
     data_dicts = [{"image": image_name, "mask": mask_name,
                    "pred": pred_name, "prob": prob_name}
                   for image_name, mask_name, pred_name, prob_name
@@ -71,14 +68,13 @@ if __name__ == '__main__':
 
     # 数据json路径
     json_path = '/workspace/data/rl/json/rl6_new.json'
-
     # 划分数据集
     train_files, val_files = divide_dataset(json_path)
 
     # 算法选择，可选ppo,ppo_step,sac,d3qn
     algo = 'd3qn'
 
-    # 网络选择
+    # 网络选择，可选pvnet,pvnet_step,vanet,pvnet2,resnet
     net_name = 'vanet'
 
     # 设置模型保存路径
