@@ -74,9 +74,6 @@ if __name__ == '__main__':
     # 算法选择，可选ppo,ppo_step,sac,d3qn
     algo = 'd3qn'
 
-    # 网络选择，可选pvnet,pvnet_step,vanet,pvnet2,resnet
-    net_name = 'vanet'
-
     # 设置模型保存路径
     valueNet_path = f'/workspace/data/rl/model/{algo}_value{date_time}{id}.pth'
     policyNet_path = f'/workspace/data/rl/model/{algo}_policy{date_time}{id}.pth'
@@ -142,6 +139,9 @@ if __name__ == '__main__':
         total_steps = (epochs * len(train_files) * num_episodes *
                        agent_epochs)  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
 
+        # 网络选择，可选pvnet,pvnet_step,vanet,pvnet2,resnet
+        net_name = 'vanet'
+
     # D3QN算法
     if algo == "d3qn":
         learning_rate = 1e-4  # 初始学习率
@@ -152,6 +152,9 @@ if __name__ == '__main__':
         batch_size = 1600  # 每次迭代的batch大小
         total_steps = (epochs * len(train_files) *
                        num_episodes)  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
+
+        # 网络选择，可选pvnet,pvnet_step,vanet,pvnet2,resnet
+        net_name = 'vanet'
 
     # SAC算法
     if algo == "sac":
@@ -166,7 +169,11 @@ if __name__ == '__main__':
         total_steps = (epochs * len(train_files) *
                        num_episodes)  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
 
+        # 网络选择，可选pvnet,pvnet_step,vanet,pvnet2,resnet
+        net_name = 'vanet'
+
     """记录参数信息"""
+    # PPO算法
     if algo == 'ppo_step' or algo == 'ppo':
         logging.info(f'''
         net_name = {net_name}
@@ -189,7 +196,9 @@ if __name__ == '__main__':
         train_certain = {train_certain}
         val_certain = {val_certain}  val_update = {val_update}
         train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}''')
-    elif algo == 'd3qn':
+
+    # D3QN算法
+    if algo == 'd3qn':
         logging.info(f'''
         net_name = {net_name}
         json_path = {json_path}
@@ -207,8 +216,11 @@ if __name__ == '__main__':
         reward_mode = {reward_mode}
         out_mode = {out_mode}  out_reward_mode = {out_reward_mode}
         train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}''')
-    elif algo == 'sac':
+
+    # SAC算法
+    if algo == 'sac':
         logging.info(f'''
+        net_name = {net_name}
         json_path = {json_path}
         GPU_id = {GPU_id}
         actor_lr = {actor_lr}  critic_lr = {critic_lr}  alpha_lr = {alpha_lr}
@@ -226,6 +238,7 @@ if __name__ == '__main__':
         train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}''')
 
     """训练"""
+    # PPO算法
     if algo == 'ppo_step':
         agent = PPOStep(policy_net=PolicyNetStep(state_channel),
                         value_net=ValueNetStep(state_channel),
@@ -268,7 +281,9 @@ if __name__ == '__main__':
                        val_spot_type=val_spot_type,
                        device=device,
                        )
-    elif algo == 'd3qn':
+
+    # D3QN算法
+    if algo == 'd3qn':
         agent = D3QN(device=device,
                      va_net=VANet(),
                      learning_rate=learning_rate,
@@ -301,7 +316,9 @@ if __name__ == '__main__':
                    val_spot_type=val_spot_type,
                    device=device,
                    )
-    elif algo == 'sac':
+
+    # SAC算法
+    if algo == 'sac':
         agent = SAC(device=device,
                     policy_net=PolicyNetStep(state_channel),
                     va_net=VANet(),
