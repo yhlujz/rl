@@ -13,7 +13,17 @@ from yuenv import CTEnvStep
 from yualgo import PPOStep, D3QN, SAC
 
 # 导入网络
-from yunet import PolicyNetStep, ValueNetStep, VANet
+from yunet import (
+    PolicyNet,
+    PolicyNet2,
+    PolicyResNet,
+    PolicyNetStep,
+    ValueNet,
+    ValueNet2,
+    ValueResNet,
+    ValueNetStep,
+    VANet,
+)
 
 # 导入训练流程
 from yutrain import train_d3qn, train_ppo_step, train_sac
@@ -125,6 +135,27 @@ if __name__ == '__main__':
     train_spot_type = 'max_prob_spot'  # 设置训练起点类型，可选random_spot，max_prob_spot
     val_spot_type = 'max_prob_spot'  # 设置验证起点类型，可选random_spot，max_prob_spot
 
+    # 网络选择，需要根据不同强化学习算法选择一个或两个网络
+    net_name = ['VANet']
+    if 'PolicyNet' in net_name:
+        policy_net = PolicyNet(state_channel).to(device)
+    if 'PolicyNet2' in net_name:
+        policy_net = PolicyNet2(state_channel).to(device)
+    if 'PolicyResNet' in net_name:
+        policy_net = PolicyResNet(state_channel).to(device)
+    if 'PolicyNetStep' in net_name:
+        policy_net = PolicyNetStep(state_channel).to(device)
+    if 'ValueNet' in net_name:
+        value_net = ValueNet(state_channel).to(device)
+    if 'ValueNet2' in net_name:
+        value_net = ValueNet2(state_channel).to(device)
+    if 'ValueResNet' in net_name:
+        value_net = ValueResNet(state_channel).to(device)
+    if 'ValueNetStep' in net_name:
+        value_net = ValueNetStep(state_channel).to(device)
+    if 'VANet' in net_name:
+        q_net = VANet(state_channel).to(device)
+
     """特定参数设置"""
     # PPO算法
     if algo == "ppo" or algo == "ppo_step":
@@ -139,9 +170,6 @@ if __name__ == '__main__':
         total_steps = (epochs * len(train_files) * num_episodes *
                        agent_epochs)  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
 
-        # 网络选择，可选pvnet,pvnet_step,vanet,pvnet2,resnet
-        net_name = 'vanet'
-
     # D3QN算法
     if algo == "d3qn":
         learning_rate = 1e-4  # 初始学习率
@@ -152,9 +180,6 @@ if __name__ == '__main__':
         batch_size = 1600  # 每次迭代的batch大小
         total_steps = (epochs * len(train_files) *
                        num_episodes)  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
-
-        # 网络选择，可选pvnet,pvnet_step,vanet,pvnet2,resnet
-        net_name = 'vanet'
 
     # SAC算法
     if algo == "sac":
@@ -168,9 +193,6 @@ if __name__ == '__main__':
         batch_size = 1600  # 每次迭代的batch大小
         total_steps = (epochs * len(train_files) *
                        num_episodes)  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
-
-        # 网络选择，可选pvnet,pvnet_step,vanet,pvnet2,resnet
-        net_name = 'vanet'
 
     """记录参数信息"""
     # PPO算法
@@ -240,8 +262,8 @@ if __name__ == '__main__':
     """训练"""
     # PPO算法
     if algo == 'ppo_step':
-        agent = PPOStep(policy_net=PolicyNetStep(state_channel),
-                        value_net=ValueNetStep(state_channel),
+        agent = PPOStep(policy_net=policy_net,
+                        value_net=value_net,
                         actor_lr=actor_lr,
                         critic_lr=critic_lr,
                         lr_decay=lr_decay,
@@ -285,7 +307,7 @@ if __name__ == '__main__':
     # D3QN算法
     if algo == 'd3qn':
         agent = D3QN(device=device,
-                     va_net=VANet(),
+                     q_net=q_net,
                      learning_rate=learning_rate,
                      total_steps=total_steps,
                      adam_eps=adam_eps,
@@ -320,8 +342,8 @@ if __name__ == '__main__':
     # SAC算法
     if algo == 'sac':
         agent = SAC(device=device,
-                    policy_net=PolicyNetStep(state_channel),
-                    va_net=VANet(),
+                    policy_net=policy_net,
+                    va_net=q_net,
                     actor_lr=actor_lr,
                     critic_lr=critic_lr,
                     alpha_lr=alpha_lr,

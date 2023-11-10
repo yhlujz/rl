@@ -11,7 +11,17 @@ from yuenv import CTEnvStep, CTEnv
 from yualgo import PPOPredict
 
 # 导入网络
-from yunet import PolicyNetStep, PolicyNet, ValueNetStep, VANet
+from yunet import (
+    PolicyNet,
+    PolicyNet2,
+    PolicyResNet,
+    PolicyNetStep,
+    ValueNet,
+    ValueNet2,
+    ValueResNet,
+    ValueNetStep,
+    VANet,
+)
 
 # 导入预测流程
 from yupred import pred_ppo
@@ -84,7 +94,8 @@ if __name__ == '__main__':
     val_certain = False  # 是否在验证时采用确定性策略，False代表采用随机采样策略
     val_spot_type = 'max_prob_spot'  # 设置验证起点类型，可选random_spot，max_prob_spot
 
-    # 模型保存路径
+    """特定参数设置"""
+    # 模型加载路径
     policyNet_path = '/workspace/data/rl/model/ppo_policy09080.pth'
     # 模型加载
     policy_net = PolicyNet(state_channel).to(device)

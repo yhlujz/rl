@@ -10,7 +10,7 @@ class SAC:
     def __init__(self,
                  device,
                  policy_net,
-                 va_net,
+                 q_net,
                  actor_lr,
                  critic_lr,
                  alpha_lr,
@@ -26,13 +26,13 @@ class SAC:
         # 策略网络
         self.actor = policy_net.to(self.device)
         # 第一个Q网络
-        self.critic_1 = va_net.to(self.device)
+        self.critic_1 = q_net.to(self.device)
         # 第一个目标Q网络
-        self.target_critic_1 = va_net.to(self.device)
+        self.target_critic_1 = q_net.to(self.device)
         # 第二个Q网络
-        self.critic_2 = va_net.to(self.device)
+        self.critic_2 = q_net.to(self.device)
         # 第二个目标Q网络
-        self.target_critic_2 = va_net.to(self.device)
+        self.target_critic_2 = q_net.to(self.device)
         # 令目标Q网络的初始参数和Q网络一样
         self.target_critic_1.load_state_dict(self.critic_1.state_dict())
         self.target_critic_2.load_state_dict(self.critic_2.state_dict())

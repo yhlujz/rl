@@ -9,7 +9,7 @@ class D3QN:
     """D3QN算法(Double DQN + Dueling DQN)"""
     def __init__(self,
                  device,
-                 va_net,
+                 q_net,
                  learning_rate,
                  total_steps,
                  adam_eps,
@@ -21,8 +21,8 @@ class D3QN:
         # 设置GPU设备
         self.device = device
         # 初始化q值网络
-        self.q_net = va_net.to(device)
-        self.target_q_net = va_net.to(device)
+        self.q_net = q_net.to(device)
+        self.target_q_net = q_net.to(device)
         self.optimizer = torch.optim.AdamW(self.q_net.parameters(),
                                            lr=learning_rate, eps=adam_eps)
         # 初始化学习率衰减策略
