@@ -1,5 +1,3 @@
-from .pvnet import PolicyNet, ValueNet
-from .pvnet2 import PolicyNet2, ValueNet2
-from .resnet import PolicyResNet, ValueResNet
-from .vanet import VANet
-from .pvnet_step import PolicyNetStep, ValueNetStep
+from .policy_net import PolicyNet, PolicyNet2, PolicyResNet, PolicyNetStep
+from .value_net import ValueNet, ValueNet2, ValueResNet, ValueNetStep
+from .q_net import VANet

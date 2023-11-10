@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 
 
@@ -37,3 +38,55 @@ class Down(nn.Module):
 
     def forward(self, x):
         return self.maxpool_conv(x)
+
+
+class Residual(nn.Module):
+    """残差结构，双层卷积"""
+    def __init__(self, input_channels, num_channels,
+                 use_1x1conv=False, strides=1):
+        super().__init__()
+        self.conv1 = nn.Conv3d(input_channels, num_channels,
+                               kernel_size=3, padding=1, stride=strides)
+        self.conv2 = nn.Conv3d(num_channels, num_channels,
+                               kernel_size=3, padding=1)
+        if use_1x1conv:
+            self.conv3 = nn.Conv3d(input_channels, num_channels,
+                                   kernel_size=1, stride=strides)
+        else:
+            self.conv3 = None
+
+    def forward(self, X):
+        Y = torch.tanh(self.conv1(X))
+        Y = self.conv2(Y)
+        if self.conv3:
+            X = self.conv3(X)
+        Y += X
+        return torch.tanh(Y)
+
+
+class DoubleRes(nn.Module):
+    """双层残差结构"""
+    def __init__(self, input_channels, num_channels):
+        super().__init__()
+        self.double_res = nn.Sequential(
+            Residual(input_channels, num_channels,
+                     use_1x1conv=True),
+            Residual(num_channels, num_channels)
+        )
+
+    def forward(self, x):
+        return self.double_res(x)
+
+
+class DownRes(nn.Module):
+    """双层残差下采样结构"""
+    def __init__(self, input_channels, num_channels):
+        super().__init__()
+        self.down = nn.Sequential(
+            Residual(input_channels, num_channels,
+                     use_1x1conv=True, strides=2),
+            Residual(num_channels, num_channels)
+        )
+
+    def forward(self, x):
+        return self.down(x)
