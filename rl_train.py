@@ -22,6 +22,7 @@ from yunet import (
     ValueNet2,
     ValueResNet,
     ValueNetStep,
+    QNet,
     VANet,
 )
 
@@ -121,6 +122,9 @@ if __name__ == '__main__':
     step_max = 5000  # 序列最大长度
     step_limit_max = 5000  # 限制无新标注的探索步数
     num_episodes = 1  # 每张图训练序列数
+    agent_epochs = 10  # 每个序列梯度下降迭代次数
+    total_steps = (epochs * len(train_files) * num_episodes *
+                   agent_epochs)  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
 
     state_mode = 'pre'  # 状态模式，可选：pre(先标注再返回状态), post(返回状态后再标注)
     reward_mode = 'dice_inc_const'  # 奖励模式，可选：dice_inc, const, dice_inc_const
@@ -155,6 +159,8 @@ if __name__ == '__main__':
         value_net = ValueNetStep(state_channel).to(device)
     if 'VANet' in net_name:
         q_net = VANet(state_channel).to(device)
+    if 'QNet' in net_name:
+        q_net = QNet(state_channel).to(device)
 
     """特定参数设置"""
     # PPO算法
@@ -163,23 +169,18 @@ if __name__ == '__main__':
         critic_lr = 1e-4  # 价值函数初始学习率
         lmbda = 0.95  # 优势估计倍率
         adv_norm = True  # 是否进行优势估计标准化
-        agent_epochs = 10  # 每个序列梯度下降迭代次数
         batch_size = 0  # 若使用minibatch方式进行更新，则需设置为非0值
         eps = 0.2  # ppo算法限制值
         entropy_coef = 0.01  # 策略熵系数，可设置为0
-        total_steps = (epochs * len(train_files) * num_episodes *
-                       agent_epochs)  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
 
     # D3QN算法
     if algo == "d3qn":
         learning_rate = 1e-4  # 初始学习率
         epsilon = 0.01  # 贪婪因子
         target_update = 50  # 多少次迭代后同步两个网络参数
-        buffer_size = 125000  # 回放池大小
-        minimal_size = 25000  # 回放池最小大小
-        batch_size = 1600  # 每次迭代的batch大小
-        total_steps = (epochs * len(train_files) *
-                       num_episodes)  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
+        buffer_size = 500000  # 回放池大小
+        minimal_size = 100000  # 回放池最小大小
+        batch_size = 5000  # 每次迭代的batch大小
 
     # SAC算法
     if algo == "sac":
@@ -188,11 +189,9 @@ if __name__ == '__main__':
         alpha_lr = 1e-4  # 熵初始学习率
         tau = 0.005  # 软更新参数
         target_entropy = -1  # 目标熵
-        buffer_size = 125000  # 回放池大小
-        minimal_size = 25000  # 回放池最小大小
-        batch_size = 1600  # 每次迭代的batch大小
-        total_steps = (epochs * len(train_files) *
-                       num_episodes)  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
+        buffer_size = 500000  # 回放池大小
+        minimal_size = 100000  # 回放池最小大小
+        batch_size = 5000  # 每次迭代的batch大小
 
     """记录参数信息"""
     # PPO算法
@@ -231,6 +230,7 @@ if __name__ == '__main__':
         target_update = {target_update}
         buffer_size = {buffer_size}  minimal_size = {minimal_size}
         batch_size = {batch_size}
+        agent_epochs = {agent_epochs}
         step_max = {step_max}  step_limit_max = {step_limit_max}
         num_episodes = {num_episodes}
         state_size = {state_size}
@@ -251,6 +251,7 @@ if __name__ == '__main__':
         target_entropy = {target_entropy}
         buffer_size = {buffer_size}  minimal_size = {minimal_size}
         batch_size = {batch_size}
+        agent_epochs = {agent_epochs}
         step_max = {step_max}  step_limit_max = {step_limit_max}
         num_episodes = {num_episodes}
         state_size = {state_size}
@@ -323,6 +324,7 @@ if __name__ == '__main__':
                    buffer_size=buffer_size,
                    minimal_size=minimal_size,
                    batch_size=batch_size,
+                   agent_epochs=agent_epochs,
                    state_channel=state_channel,
                    state_size=state_size,
                    epochs=epochs,
@@ -343,7 +345,7 @@ if __name__ == '__main__':
     if algo == 'sac':
         agent = SAC(device=device,
                     policy_net=policy_net,
-                    va_net=q_net,
+                    q_net=q_net,
                     actor_lr=actor_lr,
                     critic_lr=critic_lr,
                     alpha_lr=alpha_lr,
@@ -361,6 +363,7 @@ if __name__ == '__main__':
                   buffer_size=buffer_size,
                   minimal_size=minimal_size,
                   batch_size=batch_size,
+                  agent_epochs=agent_epochs,
                   state_channel=state_channel,
                   state_size=state_size,
                   epochs=epochs,

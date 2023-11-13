@@ -44,6 +44,7 @@ def train_sac(train_files,
               buffer_size,
               minimal_size,
               batch_size,
+              agent_epochs,
               state_channel,
               state_size,
               epochs,
@@ -140,22 +141,23 @@ def train_sac(train_files,
                         state = next_state
                         episode_return += reward
                         episode_length += 1
-                        # 当buffer数据的数量超过一定值后，才进行训练
-                        if replay_buffer.size() > minimal_size:
-                            b_s, b_c, b_st, b_a, b_ns, b_nc, b_nst, b_r, b_d = replay_buffer.sample(batch_size)
-                            transition_dict = {
-                                'states': b_s,
-                                'covers': b_c,
-                                'steps': b_st,
-                                'actions': b_a,
-                                'next_states': b_ns,
-                                'next_covers': b_nc,
-                                'next_steps': b_nst,
-                                'rewards': b_r,
-                                'dones': b_d
-                            }
-                            agent.update(transition_dict)  # 每个迭代更新一次
-                    agent.step_lr()
+                        # 每个序列更新agent_epochs次，并且当buffer数据的数量超过一定值后，才进行训练
+                        if episode_length % (step_max // agent_epochs) == 0:
+                            if replay_buffer.size() > minimal_size:
+                                b_s, b_c, b_st, b_a, b_ns, b_nc, b_nst, b_r, b_d = replay_buffer.sample(batch_size)
+                                transition_dict = {
+                                    'states': b_s,
+                                    'covers': b_c,
+                                    'steps': b_st,
+                                    'actions': b_a,
+                                    'next_states': b_ns,
+                                    'next_covers': b_nc,
+                                    'next_steps': b_nst,
+                                    'rewards': b_r,
+                                    'dones': b_d
+                                }
+                                agent.update(transition_dict)  # 每个迭代更新一次
+                            agent.step_lr()
                     batch_return += episode_return
                     batch_length += episode_length
                     batch_dice += env.dice
