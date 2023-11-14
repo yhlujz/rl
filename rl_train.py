@@ -24,6 +24,7 @@ from yunet import (
     ValueNetStep,
     QNet,
     VANet,
+    VANetRelu,
 )
 
 # 导入训练流程
@@ -140,7 +141,7 @@ if __name__ == '__main__':
     val_spot_type = 'max_prob_spot'  # 设置验证起点类型，可选random_spot，max_prob_spot
 
     # 网络选择，需要根据不同强化学习算法选择一个或两个网络
-    net_name = ['VANet']
+    net_name = ['VANetRelu']
     if 'PolicyNet' in net_name:
         policy_net = PolicyNet(state_channel).to(device)
     if 'PolicyNet2' in net_name:
@@ -161,6 +162,8 @@ if __name__ == '__main__':
         q_net = VANet(state_channel).to(device)
     if 'QNet' in net_name:
         q_net = QNet(state_channel).to(device)
+    if 'VANetRelu' in net_name:
+        q_net = VANetRelu(state_channel).to(device)
 
     """特定参数设置"""
     # PPO算法
