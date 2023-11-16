@@ -58,21 +58,21 @@ class CTEnv:
         spots = torch.nonzero(self.mask_padding)
         self.mask_spots_n = len(spots)  # 记录mask中标注点的数量
         i = np.random.randint(self.mask_spots_n)
-        self.ori_spot = spots[i].tolist()  # 从标注中随机选取一点作为起点
-        self.spot = self.ori_spot  # 初始化智能体位置坐标
+        self.random_spot = spots[i].tolist()  # 从标注中随机选取一点作为起点
+        self.spot = self.random_spot  # 初始化智能体位置坐标
 
         # 根据已预测概率图初始化起点(使用概率最大点的坐标)
-        self.prob_spot = torch.nonzero(
+        self.max_prob_spot = torch.nonzero(
             self.prob_padding == torch.max(self.prob_padding))[0].tolist()
 
     def reset(self, spot_type):
         """回归初始状态（预测图只包含随机起点的状态）并返回初始状态值"""
-        self.step_n = 1  # 步数置1
+        self.step_n = 0  # 步数置0
         self.step_limit_n = 0  # 无新标注步数置0
-        if spot_type == 'ori_spot':
-            self.spot = self.ori_spot  # 重新初始化智能体位置坐标
-        elif spot_type == 'prob_spot':
-            self.spot = self.prob_spot
+        if spot_type == 'random_spot':
+            self.spot = self.random_spot  # 重新初始化智能体位置坐标
+        elif spot_type == 'max_prob_spot':
+            self.spot = self.max_prob_spot
         else:
             print('error: invalid spot_type!')
         self.pred_padding = torch.zeros_like(self.mask_padding).int()  # 初始化预测图像
