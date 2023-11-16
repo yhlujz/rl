@@ -291,61 +291,6 @@ def compute_nii_metrics(stage, masks, preds):
     return metrics_d
 
 
-def compute_3stage_metrics(root_path):
-    ''' 分别计算三个时期的指标 '''
-
-    stages = ['ps', 'px', 'pz']
-    for stage in stages:
-        masks = sorted(glob.glob(os.path.join(root_path, "mask", "*", "*" + stage + "*mask1*")))
-        preds = sorted(glob.glob(os.path.join(root_path, "pred", "*", "*" + stage + "*")))
-        # json_path = os.path.join(root_path, stage + ".json")
-        metrics_d = compute_nii_metrics(stage, masks, preds)
-        # metrics_d.to_json(json_path)  # 生成json
-
-        # 生成统计值
-        excel_path = os.path.join(root_path, stage + ".xlsx")
-        df = metrics_d.describe().loc[['mean', 'std']].T.apply(lambda x: round(x, 3))
-        df['mean'] = df['mean'].astype(str)
-        df['std'] = df['std'].astype(str)
-        df['Mean ± Std'] = [' ± '.join(i) for i in df[['mean', 'std']].values]
-        df.to_excel(excel_path)  # 生成excel
-
-        # 生成排序值
-        excel_path = os.path.join(root_path, stage + "_all.xlsx")
-        metrics_d.to_excel(excel_path)  # 生成excel
-
-
-def compute_manual_error(root_path):
-    ''' 分别计算三个时期的人人误差 '''
-
-    stages = ['ps', 'px', 'pz']
-    for stage in stages:
-        mask1 = sorted(glob.glob(os.path.join(root_path, "mask", "*", "*" + stage + "*mask1*")))
-        mask2 = sorted(glob.glob(os.path.join(root_path, "mask", "*", "*" + stage + "*mask2*")))
-        mask3 = sorted(glob.glob(os.path.join(root_path, "mask", "*", "*" + stage + "*mask3*")))
-        metrics_d21 = compute_nii_metrics(stage, mask1, mask2)
-        metrics_d31 = compute_nii_metrics(stage, mask1, mask3)
-        metrics_d23 = compute_nii_metrics(stage, mask2, mask3)
-
-        # 生成排序值
-        excel_path = os.path.join(root_path, stage + "12all.xlsx")
-        metrics_d21.to_excel(excel_path)
-        excel_path = os.path.join(root_path, stage + "13all.xlsx")
-        metrics_d31.to_excel(excel_path)
-        excel_path = os.path.join(root_path, stage + "23all.xlsx")
-        metrics_d23.to_excel(excel_path)
-
-        # 生成统计值
-        df21 = metrics_d21.describe().loc[['mean', 'std']].T.apply(lambda x: round(x, 3))
-        df31 = metrics_d31.describe().loc[['mean', 'std']].T.apply(lambda x: round(x, 3))
-        df = ((df21 + df31) / 2).apply(lambda x: round(x, 3))
-        excel_path = os.path.join(root_path, stage + ".xlsx")
-        df['mean'] = df['mean'].astype(str)
-        df['std'] = df['std'].astype(str)
-        df['Mean ± Std'] = [' ± '.join(i) for i in df[['mean', 'std']].values]
-        df.to_excel(excel_path)  # 生成excel
-
-
 def compute_single_metrics(root_path):
     ''' 计算单个标注的指标 '''
 
@@ -356,11 +301,11 @@ def compute_single_metrics(root_path):
     for _, row in df.iterrows():
         if row['dataset'] == 'test':
             masks.append(row['mask_path'])
-    preds = sorted(glob.glob(os.path.join(root_path, "output", "*.nii.gz")))
+    preds = sorted(glob.glob(os.path.join(root_path, "output6", "*.nii.gz")))
     metrics_d = compute_nii_metrics(stage, masks, preds)
 
     # 生成统计值
-    excel_path = os.path.join(root_path, "metrics", "nnunetv2.xlsx")
+    excel_path = os.path.join(root_path, "metrics", "artery.xlsx")
     df = metrics_d.describe().loc[['mean', 'std']].T.apply(lambda x: round(x, 3))
     df['mean'] = df['mean'].astype(str)
     df['std'] = df['std'].astype(str)
@@ -368,7 +313,7 @@ def compute_single_metrics(root_path):
     df.to_excel(excel_path)  # 生成excel
 
     # 生成排序值
-    excel_path = os.path.join(root_path, "metrics", "nnunetv2_all.xlsx")
+    excel_path = os.path.join(root_path, "metrics", "artery_all.xlsx")
     metrics_d.to_excel(excel_path)  # 生成excel
 
 
