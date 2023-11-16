@@ -289,7 +289,7 @@ if __name__ == '__main__':
         train_ppo_step(train_files=train_files,
                        val_files=val_files,
                        agent=agent,
-                       CTEnvStep=CTEnvStep,
+                       CTEnv=CTEnvStep,
                        state_channel=state_channel,
                        state_size=state_size,
                        epochs=epochs,

@@ -8,7 +8,7 @@ from monai.utils import set_determinism
 from yuenv import CTEnvStep, CTEnv
 
 # 导入算法
-from yualgo import PPOPredict
+from yualgo import PPOPredict, PPOStepPredict
 
 # 导入网络
 from yunet import (
@@ -24,7 +24,7 @@ from yunet import (
 )
 
 # 导入预测流程
-from yupred import pred_ppo
+from yupred import pred_ppo, pred_ppo_step
 
 
 def load_dataset(json_path):
@@ -84,7 +84,7 @@ if __name__ == '__main__':
 
     num_workers = 0  # 数据加载线程数
     step_max = 5000  # 序列最大长度
-    step_limit_max = 500  # 限制无新标注的探索步数
+    step_limit_max = 5000  # 限制无新标注的探索步数
 
     state_mode = 'pre'  # 状态模式，可选：pre(先标注再返回状态), post(返回状态后再标注)
     reward_mode = 'dice_inc_const'  # 奖励模式，可选：dice_inc, const, dice_inc_const
@@ -112,6 +112,31 @@ if __name__ == '__main__':
             test_files=test_files,
             agent=agent,
             CTEnv=CTEnv,
+            state_size=state_size,
+            norm_method=norm_method,
+            num_workers=num_workers,
+            step_max=step_max,
+            step_limit_max=step_limit_max,
+            state_mode=state_mode,
+            reward_mode=reward_mode,
+            out_mode=out_mode,
+            out_reward_mode=out_reward_mode,
+            val_certain=val_certain,
+            val_spot_type=val_spot_type,
+            device=device,
+            output_path=output_path,
+        )
+
+    if algo == 'ppo_step':
+        agent = PPOStepPredict(
+            policy_net=policy_net,
+            amp=amp,
+            device=device,
+        )
+        pred_ppo_step(
+            test_files=test_files,
+            agent=agent,
+            CTEnv=CTEnvStep,
             state_size=state_size,
             norm_method=norm_method,
             num_workers=num_workers,
