@@ -7,10 +7,10 @@ from datetime import datetime
 from monai.utils import set_determinism
 
 # 导入环境
-from yuenv import CTEnvStep
+from yuenv import CTEnvStep, CTEnv
 
 # 导入算法
-from yualgo import PPOStep, D3QN, SAC
+from yualgo import PPO, PPOStep, D3QN, SAC
 
 # 导入网络
 from yunet import (
@@ -28,7 +28,7 @@ from yunet import (
 )
 
 # 导入训练流程
-from yutrain import train_d3qn, train_ppo_step, train_sac
+from yutrain import train_ppo, train_d3qn, train_ppo_step, train_sac
 
 
 def divide_dataset(json_path):
@@ -64,10 +64,10 @@ if __name__ == '__main__':
 
     """必要参数设置"""
     # 训练编号
-    id = '7'
+    id = '0'
 
     # 设置GPU
-    GPU_id = '7'
+    GPU_id = '0'
     os.environ["CUDA_VISIBLE_DEVICES"] = GPU_id
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device {device}\n')
@@ -118,7 +118,7 @@ if __name__ == '__main__':
     state_size = [21, 21, 9]  # 状态图大小
     norm_method = 'norm'  # 状态图归一化方法，可选：min_max, norm
 
-    epochs = 500  # 总循环次数
+    epochs = 100  # 总循环次数
     num_workers = 0  # 数据加载线程数
     step_max = 5000  # 序列最大长度
     step_limit_max = 5000  # 限制无新标注的探索步数
@@ -168,7 +168,7 @@ if __name__ == '__main__':
     """特定参数设置"""
     # PPO算法
     if algo == "ppo" or algo == "ppo_step":
-        actor_lr = 1e-5  # 策略函数初始学习率
+        actor_lr = 1e-4  # 策略函数初始学习率
         critic_lr = 1e-4  # 价值函数初始学习率
         lmbda = 0.95  # 优势估计倍率
         adv_norm = True  # 是否进行优势估计标准化
@@ -187,7 +187,7 @@ if __name__ == '__main__':
 
     # SAC算法
     if algo == "sac":
-        actor_lr = 1e-5  # 策略函数初始学习率
+        actor_lr = 1e-4  # 策略函数初始学习率
         critic_lr = 1e-4  # 价值函数初始学习率
         alpha_lr = 1e-4  # 熵初始学习率
         tau = 0.005  # 软更新参数
@@ -265,6 +265,55 @@ if __name__ == '__main__':
 
     """训练"""
     # PPO算法
+    if algo == 'ppo':
+        agent = PPO(policy_net=policy_net,
+                    value_net=value_net,
+                    actor_lr=actor_lr,
+                    critic_lr=critic_lr,
+                    lr_decay=lr_decay,
+                    total_steps=total_steps,
+                    optimizer=optimizer,
+                    adam_eps=adam_eps,
+                    lmbda=lmbda,
+                    agent_epochs=agent_epochs,
+                    batch_size=batch_size,
+                    eps=eps,
+                    entropy_coef=entropy_coef,
+                    gamma=gamma,
+                    adv_norm=adv_norm,
+                    amp=amp,
+                    device=device,
+                    valueNet_path=valueNet_path,
+                    policyNet_path=policyNet_path,
+                    val_update=val_update,
+                    )
+        train_ppo(train_files=train_files,
+                  val_files=val_files,
+                  agent=agent,
+                  CTEnv=CTEnv,
+                  state_channel=state_channel,
+                  state_size=state_size,
+                  norm_method=norm_method,
+                  state_norm=state_norm,
+                  reward_norm=reward_norm,
+                  gamma=gamma,
+                  epochs=epochs,
+                  num_workers=num_workers,
+                  step_max=step_max,
+                  step_limit_max=step_limit_max,
+                  num_episodes=num_episodes,
+                  state_mode=state_mode,
+                  reward_mode=reward_mode,
+                  out_mode=out_mode,
+                  out_reward_mode=out_reward_mode,
+                  train_certain=train_certain,
+                  val_certain=val_certain,
+                  val_update=val_update,
+                  train_spot_type=train_spot_type,
+                  val_spot_type=val_spot_type,
+                  device=device,
+                  )
+
     if algo == 'ppo_step':
         agent = PPOStep(policy_net=policy_net,
                         value_net=value_net,
