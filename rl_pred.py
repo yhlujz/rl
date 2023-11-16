@@ -16,10 +16,6 @@ from yunet import (
     PolicyNet2,
     PolicyResNet,
     PolicyNetStep,
-    ValueNet,
-    ValueNet2,
-    ValueResNet,
-    ValueNetStep,
     VANet,
 )
 
@@ -70,7 +66,7 @@ if __name__ == '__main__':
     test_files = load_dataset(json_path)
 
     # 算法选择，可选ppo,ppo_step,sac,d3qn
-    algo = 'ppo'
+    algo = 'ppo_step'
 
     # 预测数据保存路径
     output_path = '/workspace/data/rl/output6'
@@ -94,11 +90,23 @@ if __name__ == '__main__':
     val_certain = False  # 是否在验证时采用确定性策略，False代表采用随机采样策略
     val_spot_type = 'max_prob_spot'  # 设置验证起点类型，可选random_spot，max_prob_spot
 
+    # 网络选择，需要根据不同强化学习算法选择一个或两个网络
+    net_name = ['PolicyNetStep']
+    if 'PolicyNet' in net_name:
+        policy_net = PolicyNet(state_channel).to(device)
+    if 'PolicyNet2' in net_name:
+        policy_net = PolicyNet2(state_channel).to(device)
+    if 'PolicyResNet' in net_name:
+        policy_net = PolicyResNet(state_channel).to(device)
+    if 'PolicyNetStep' in net_name:
+        policy_net = PolicyNetStep(state_channel).to(device)
+    if 'VANet' in net_name:
+        q_net = VANet(state_channel).to(device)
+
     """特定参数设置"""
     # 模型加载路径
-    policyNet_path = '/workspace/data/rl/model/ppo_policy09080.pth'
+    policyNet_path = '/workspace/data/rl/model/ppo_step_policy11095.pth'
     # 模型加载
-    policy_net = PolicyNet(state_channel).to(device)
     policy_net.load_state_dict(torch.load(policyNet_path, map_location=device))
 
     """预测"""
@@ -137,6 +145,7 @@ if __name__ == '__main__':
             test_files=test_files,
             agent=agent,
             CTEnv=CTEnvStep,
+            state_channel=state_channel,
             state_size=state_size,
             norm_method=norm_method,
             num_workers=num_workers,

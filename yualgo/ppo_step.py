@@ -198,8 +198,8 @@ class PPOStepPredict:
     def take_action(self, state, cover, step):
         """根据策略网络采样动作，一般用于训练"""
         state = torch.tensor(np.array([state]), dtype=torch.float).to(self.device)  # 增加一个batch维度
-        cover = torch.tensor(np.array([cover]), dtype=torch.float).to(self.device)
-        step = torch.tensor(np.array([step]), dtype=torch.float).to(self.device)
+        cover = torch.tensor(np.array([cover]), dtype=torch.float).view(-1, 1).to(self.device)
+        step = torch.tensor(np.array([step]), dtype=torch.float).view(-1, 1).to(self.device)
         with torch.cuda.amp.autocast():
             probs = self.actor(state, cover, step)
         action_dist = torch.distributions.Categorical(probs)
@@ -209,8 +209,8 @@ class PPOStepPredict:
     def take_certain_action(self, state, cover, step):
         """根据策略网络确定动作，一般用于验证和测试"""
         state = torch.tensor(np.array([state]), dtype=torch.float).to(self.device)  # 增加一个batch维度
-        cover = torch.tensor(np.array([cover]), dtype=torch.float).to(self.device)
-        step = torch.tensor(np.array([step]), dtype=torch.float).to(self.device)
+        cover = torch.tensor(np.array([cover]), dtype=torch.float).view(-1, 1).to(self.device)
+        step = torch.tensor(np.array([step]), dtype=torch.float).view(-1, 1).to(self.device)
         with torch.cuda.amp.autocast():
             probs = self.actor(state, cover, step)
         action = torch.argmax(probs)
