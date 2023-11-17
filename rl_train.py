@@ -18,10 +18,12 @@ from yunet import (
     PolicyNet2,
     PolicyResNet,
     PolicyNetStep,
+    PolicyNetStepGelu,
     ValueNet,
     ValueNet2,
     ValueResNet,
     ValueNetStep,
+    ValueNetStepGelu,
     QNet,
     VANet,
     VANetRelu,
@@ -140,30 +142,40 @@ if __name__ == '__main__':
     train_spot_type = 'max_prob_spot'  # 设置训练起点类型，可选random_spot，max_prob_spot
     val_spot_type = 'max_prob_spot'  # 设置验证起点类型，可选random_spot，max_prob_spot
 
-    # 网络选择，需要根据不同强化学习算法选择一个或两个网络
-    net_name = ['VANetRelu']
+    net_name = ['VANetRelu']  # 网络选择，需要根据不同强化学习算法选择一个或两个网络
+    OI = False  # 是否使用正交初始化
+
+    # 策略网络
     if 'PolicyNet' in net_name:
-        policy_net = PolicyNet(state_channel).to(device)
+        policy_net = PolicyNet(state_channel, OI).to(device)
     if 'PolicyNet2' in net_name:
-        policy_net = PolicyNet2(state_channel).to(device)
+        policy_net = PolicyNet2(state_channel, OI).to(device)
     if 'PolicyResNet' in net_name:
-        policy_net = PolicyResNet(state_channel).to(device)
+        policy_net = PolicyResNet(state_channel, OI).to(device)
     if 'PolicyNetStep' in net_name:
-        policy_net = PolicyNetStep(state_channel).to(device)
+        policy_net = PolicyNetStep(state_channel, OI).to(device)
+    if 'PolicyNetStepGelu' in net_name:
+        policy_net = PolicyNetStepGelu(state_channel, OI).to(device)
+
+    # 价值网络
     if 'ValueNet' in net_name:
-        value_net = ValueNet(state_channel).to(device)
+        value_net = ValueNet(state_channel, OI).to(device)
     if 'ValueNet2' in net_name:
-        value_net = ValueNet2(state_channel).to(device)
+        value_net = ValueNet2(state_channel, OI).to(device)
     if 'ValueResNet' in net_name:
-        value_net = ValueResNet(state_channel).to(device)
+        value_net = ValueResNet(state_channel, OI).to(device)
     if 'ValueNetStep' in net_name:
-        value_net = ValueNetStep(state_channel).to(device)
+        value_net = ValueNetStep(state_channel, OI).to(device)
+    if 'ValueNetStepGelu' in net_name:
+        value_net = ValueNetStepGelu(state_channel, OI).to(device)
+
+    # q值网络
     if 'VANet' in net_name:
-        q_net = VANet(state_channel).to(device)
+        q_net = VANet(state_channel, OI).to(device)
     if 'QNet' in net_name:
-        q_net = QNet(state_channel).to(device)
+        q_net = QNet(state_channel, OI).to(device)
     if 'VANetRelu' in net_name:
-        q_net = VANetRelu(state_channel).to(device)
+        q_net = VANetRelu(state_channel, OI).to(device)
 
     """特定参数设置"""
     # PPO算法
@@ -200,13 +212,13 @@ if __name__ == '__main__':
     # PPO算法
     if algo == 'ppo_step' or algo == 'ppo':
         logging.info(f'''
-        net_name = {net_name}
+        net_name = {net_name}  OI = {OI}
         json_path = {json_path}
         GPU_id = {GPU_id}
         actor_lr = {actor_lr}  critic_lr = {critic_lr}
         lr_decay = {lr_decay}
         optimizer = {optimizer}  adam_eps = {adam_eps}
-        agent_epochs = {agent_epochs}
+        epochs = {epochs}  agent_epochs = {agent_epochs}
         batch_size = {batch_size}
         adv_norm = {adv_norm}  entropy_coef = {entropy_coef}
         amp = {amp}
@@ -224,7 +236,7 @@ if __name__ == '__main__':
     # D3QN算法
     if algo == 'd3qn':
         logging.info(f'''
-        net_name = {net_name}
+        net_name = {net_name}  OI = {OI}
         json_path = {json_path}
         GPU_id = {GPU_id}
         lr = {learning_rate}
@@ -233,7 +245,7 @@ if __name__ == '__main__':
         target_update = {target_update}
         buffer_size = {buffer_size}  minimal_size = {minimal_size}
         batch_size = {batch_size}
-        agent_epochs = {agent_epochs}
+        epochs = {epochs}  agent_epochs = {agent_epochs}
         step_max = {step_max}  step_limit_max = {step_limit_max}
         num_episodes = {num_episodes}
         state_size = {state_size}
@@ -245,7 +257,7 @@ if __name__ == '__main__':
     # SAC算法
     if algo == 'sac':
         logging.info(f'''
-        net_name = {net_name}
+        net_name = {net_name}  OI = {OI}
         json_path = {json_path}
         GPU_id = {GPU_id}
         actor_lr = {actor_lr}  critic_lr = {critic_lr}  alpha_lr = {alpha_lr}
@@ -254,7 +266,7 @@ if __name__ == '__main__':
         target_entropy = {target_entropy}
         buffer_size = {buffer_size}  minimal_size = {minimal_size}
         batch_size = {batch_size}
-        agent_epochs = {agent_epochs}
+        epochs = {epochs}  agent_epochs = {agent_epochs}
         step_max = {step_max}  step_limit_max = {step_limit_max}
         num_episodes = {num_episodes}
         state_size = {state_size}
