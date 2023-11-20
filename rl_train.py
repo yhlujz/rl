@@ -66,10 +66,10 @@ if __name__ == '__main__':
 
     """必要参数设置"""
     # 训练编号
-    id = '0'
+    id = '3'
 
     # 设置GPU
-    GPU_id = '0'
+    GPU_id = '3'
     os.environ["CUDA_VISIBLE_DEVICES"] = GPU_id
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device {device}\n')
@@ -86,7 +86,13 @@ if __name__ == '__main__':
     train_files, val_files = divide_dataset(json_path)
 
     # 算法选择，可选ppo,ppo_step,sac,d3qn
-    algo = 'd3qn'
+    algo = 'ppo_step'
+
+    # 根据算法定义环境
+    if algo == 'ppo':
+        env = CTEnv
+    else:
+        env = CTEnvStep
 
     # 设置模型保存路径
     valueNet_path = f'/workspace/data/rl/model/{algo}_value{date_time}{id}.pth'
@@ -139,11 +145,11 @@ if __name__ == '__main__':
 
     val_update = False  # 是否经过验证集后才真正更新网络参数
 
-    train_spot_type = 'max_prob_spot'  # 设置训练起点类型，可选random_spot，max_prob_spot
+    train_spot_type = 'random_spot'  # 设置训练起点类型，可选random_spot，max_prob_spot
     val_spot_type = 'max_prob_spot'  # 设置验证起点类型，可选random_spot，max_prob_spot
 
-    net_name = ['VANetRelu']  # 网络选择，需要根据不同强化学习算法选择一个或两个网络
-    OI = False  # 是否使用正交初始化
+    net_name = ['PolicyNetStep', 'ValueNetStep']  # 网络选择，需要根据不同强化学习算法选择一个或两个网络
+    OI = True  # 是否使用正交初始化
 
     # 策略网络
     if 'PolicyNet' in net_name:
@@ -302,7 +308,7 @@ if __name__ == '__main__':
         train_ppo(train_files=train_files,
                   val_files=val_files,
                   agent=agent,
-                  CTEnv=CTEnv,
+                  env=env,
                   state_channel=state_channel,
                   state_size=state_size,
                   norm_method=norm_method,
@@ -350,7 +356,7 @@ if __name__ == '__main__':
         train_ppo_step(train_files=train_files,
                        val_files=val_files,
                        agent=agent,
-                       CTEnv=CTEnvStep,
+                       env=env,
                        state_channel=state_channel,
                        state_size=state_size,
                        epochs=epochs,
@@ -384,7 +390,7 @@ if __name__ == '__main__':
         train_d3qn(train_files=train_files,
                    val_files=val_files,
                    agent=agent,
-                   CTEnv=CTEnvStep,
+                   env=env,
                    buffer_size=buffer_size,
                    minimal_size=minimal_size,
                    batch_size=batch_size,
@@ -423,7 +429,7 @@ if __name__ == '__main__':
         train_sac(train_files=train_files,
                   val_files=val_files,
                   agent=agent,
-                  CTEnv=CTEnvStep,
+                  env=env,
                   buffer_size=buffer_size,
                   minimal_size=minimal_size,
                   batch_size=batch_size,

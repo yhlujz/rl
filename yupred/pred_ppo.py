@@ -16,7 +16,7 @@ from monai.data import CacheDataset, DataLoader, decollate_batch
 
 def pred_ppo(test_files,
              agent,
-             CTEnv,
+             env,
              state_size,
              norm_method,
              num_workers,
@@ -102,17 +102,17 @@ def pred_ppo(test_files,
                 test_data["pred"].to(device),
                 test_data["prob"].to(device),
             )
-            env = CTEnv(images[0],
-                        masks[0],
-                        preds[0],
-                        probs[0][1],
-                        state_size,
-                        step_max,
-                        step_limit_max,
-                        state_mode,
-                        reward_mode,
-                        out_mode,
-                        out_reward_mode)  # 初始化环境
+            env = env(images[0],
+                      masks[0],
+                      preds[0],
+                      probs[0][1],
+                      state_size,
+                      step_max,
+                      step_limit_max,
+                      state_mode,
+                      reward_mode,
+                      out_mode,
+                      out_reward_mode)  # 初始化环境
             state = env.reset(spot_type=val_spot_type)
             done = False
             while not done:

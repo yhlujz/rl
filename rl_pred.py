@@ -68,6 +68,12 @@ if __name__ == '__main__':
     # 算法选择，可选ppo,ppo_step,sac,d3qn
     algo = 'ppo_step'
 
+    # 根据算法定义环境
+    if algo == 'ppo':
+        env = CTEnv
+    else:
+        env = CTEnvStep
+
     # 预测数据保存路径
     output_path = '/workspace/data/rl/output6'
 
@@ -119,7 +125,7 @@ if __name__ == '__main__':
         pred_ppo(
             test_files=test_files,
             agent=agent,
-            CTEnv=CTEnv,
+            env=env,
             state_size=state_size,
             norm_method=norm_method,
             num_workers=num_workers,
@@ -144,7 +150,7 @@ if __name__ == '__main__':
         pred_ppo_step(
             test_files=test_files,
             agent=agent,
-            CTEnv=CTEnvStep,
+            env=env,
             state_channel=state_channel,
             state_size=state_size,
             norm_method=norm_method,
