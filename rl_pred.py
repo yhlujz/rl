@@ -13,6 +13,7 @@ from yualgo import PPOPredict, PPOStepPredict
 # 导入网络
 from yunet import (
     PolicyNet,
+    PolicyNetLight,
     PolicyNet2,
     PolicyResNet,
     PolicyNetStep,
@@ -68,11 +69,8 @@ if __name__ == '__main__':
     # 算法选择，可选ppo,ppo_step,sac,d3qn
     algo = 'ppo_step'
 
-    # 根据算法定义环境
-    if algo == 'ppo':
-        env = CTEnv
-    else:
-        env = CTEnvStep
+    # 环境选择，可选CTEnv,CTEnvStep
+    Env = CTEnv
 
     # 预测数据保存路径
     output_path = '/workspace/data/rl/output6'
@@ -80,6 +78,7 @@ if __name__ == '__main__':
     """公用参数设置"""
     amp = True  # 是否使用混合精度训练和推断加速
 
+    action_num = 6  # 动作个数，可选6，7(增加回到起点)
     state_channel = 3  # 状态图通道数，可选2，3
     state_size = [21, 21, 9]  # 状态图大小
     norm_method = 'norm'  # 归一化方法，可选：min_max, norm
@@ -99,15 +98,17 @@ if __name__ == '__main__':
     # 网络选择，需要根据不同强化学习算法选择一个或两个网络
     net_name = ['PolicyNetStep']
     if 'PolicyNet' in net_name:
-        policy_net = PolicyNet(state_channel).to(device)
+        policy_net = PolicyNet(action_num, state_channel, OI).to(device)
+    if 'PolicyNetLight' in net_name:
+        policy_net = PolicyNetLight(action_num, state_channel, OI).to(device)
     if 'PolicyNet2' in net_name:
-        policy_net = PolicyNet2(state_channel).to(device)
+        policy_net = PolicyNet2(action_num, state_channel, OI).to(device)
     if 'PolicyResNet' in net_name:
-        policy_net = PolicyResNet(state_channel).to(device)
+        policy_net = PolicyResNet(action_num, state_channel, OI).to(device)
     if 'PolicyNetStep' in net_name:
-        policy_net = PolicyNetStep(state_channel).to(device)
+        policy_net = PolicyNetStep(action_num, state_channel, OI).to(device)
     if 'VANet' in net_name:
-        q_net = VANet(state_channel).to(device)
+        q_net = VANet(action_num, state_channel, OI).to(device)
 
     """特定参数设置"""
     # 模型加载路径
@@ -125,7 +126,7 @@ if __name__ == '__main__':
         pred_ppo(
             test_files=test_files,
             agent=agent,
-            env=env,
+            Env=Env,
             state_size=state_size,
             norm_method=norm_method,
             num_workers=num_workers,
@@ -150,7 +151,7 @@ if __name__ == '__main__':
         pred_ppo_step(
             test_files=test_files,
             agent=agent,
-            env=env,
+            Env=Env,
             state_channel=state_channel,
             state_size=state_size,
             norm_method=norm_method,

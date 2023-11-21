@@ -54,16 +54,33 @@ class CTEnv:
         # 创建与标注大小相同的预测图
         self.pred_padding = torch.zeros_like(self.mask_padding).int()
 
-        # 根据mask随机初始化起点(注意：起点坐标为padding后的坐标)
-        spots = torch.nonzero(self.mask_padding)
-        self.mask_spots_n = len(spots)  # 记录mask中标注点的数量
-        i = np.random.randint(self.mask_spots_n)
+        # 根据已预测图像随机初始化起点(注意：起点坐标为padding后的坐标)
+        spots = torch.nonzero(self.preded_padding)
+        spots_n = len(spots)  # 记录标注点的数量
+        i = np.random.randint(spots_n)
         self.random_spot = spots[i].tolist()  # 从标注中随机选取一点作为起点
-        self.spot = self.random_spot  # 初始化智能体位置坐标
 
         # 根据已预测概率图初始化起点(使用概率最大点的坐标)
         self.max_prob_spot = torch.nonzero(
             self.prob_padding == torch.max(self.prob_padding))[0].tolist()
+
+        # 根据已预测图像随机取一个边缘点作为起点（边缘点更靠近主血管）
+        edge_spots = []
+        for spot in spots:
+            if spot[0] == self.pad_length:  # 左边界
+                edge_spots.append(spot)
+            elif spot[0] == self.preded_padding.shape[0] - 1 - self.pad_length:  # 右边界
+                edge_spots.append(spot)
+            elif spot[1] == self.pad_width:  # 上边界
+                edge_spots.append(spot)
+            elif spot[2] == self.preded_padding.shape[2] - 1 - self.pad_depth:  # 后边界
+                edge_spots.append(spot)
+        spots_n = len(edge_spots)
+        i = np.random.randint(spots_n)
+        self.edge_spot = edge_spots[i].tolist()  # 从边缘标注中随机选取一点作为起点
+
+        # 初始化智能体位置坐标
+        self.spot = self.edge_spot
 
     def reset(self, spot_type):
         """回归初始状态（预测图只包含随机起点的状态）并返回初始状态值"""
@@ -74,7 +91,7 @@ class CTEnv:
         elif spot_type == 'max_prob_spot':
             self.spot = self.max_prob_spot
         else:
-            print('error: invalid spot_type!')
+            self.spot = self.edge_spot  # 默认使用边缘起始点
         self.pred_padding = torch.zeros_like(self.mask_padding).int()  # 初始化预测图像
         if self.state_mode == 'post':
             next_state = self.spot_to_state()  # post模式先返回状态后标注
@@ -108,8 +125,11 @@ class CTEnv:
 
     def step(self, action):
         """智能体完成一个动作，并返回下一个状态、奖励和完成情况"""
-        change = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
-        self.spot = [x + y for x, y in zip(self.spot, change[action])]  # 将动作叠加到位置
+        if action == 6:
+            self.spot = self.edge_spot
+        else:
+            change = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
+            self.spot = [x + y for x, y in zip(self.spot, change[action])]  # 将动作叠加到位置
         self.step_n += 1  # 步数累积
         done = False  # 默认为未完成
         # 如果超出边界

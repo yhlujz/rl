@@ -1,5 +1,6 @@
 from .policy_net import (
     PolicyNet,
+    PolicyNetLight,
     PolicyNet2,
     PolicyResNet,
     PolicyNetStep,
@@ -7,6 +8,7 @@ from .policy_net import (
 )
 from .value_net import (
     ValueNet,
+    ValueNetLight,
     ValueNet2,
     ValueResNet,
     ValueNetStep,

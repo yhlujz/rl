@@ -15,11 +15,13 @@ from yualgo import PPO, PPOStep, D3QN, SAC
 # 导入网络
 from yunet import (
     PolicyNet,
+    PolicyNetLight,
     PolicyNet2,
     PolicyResNet,
     PolicyNetStep,
     PolicyNetStepGelu,
     ValueNet,
+    ValueNetLight,
     ValueNet2,
     ValueResNet,
     ValueNetStep,
@@ -66,10 +68,10 @@ if __name__ == '__main__':
 
     """必要参数设置"""
     # 训练编号
-    id = '3'
+    id = '0'
 
     # 设置GPU
-    GPU_id = '3'
+    GPU_id = '0'
     os.environ["CUDA_VISIBLE_DEVICES"] = GPU_id
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device {device}\n')
@@ -86,13 +88,10 @@ if __name__ == '__main__':
     train_files, val_files = divide_dataset(json_path)
 
     # 算法选择，可选ppo,ppo_step,sac,d3qn
-    algo = 'ppo_step'
+    algo = 'ppo'
 
-    # 根据算法定义环境
-    if algo == 'ppo':
-        env = CTEnv
-    else:
-        env = CTEnvStep
+    # 环境选择，可选CTEnv,CTEnvStep
+    Env = CTEnv
 
     # 设置模型保存路径
     valueNet_path = f'/workspace/data/rl/model/{algo}_value{date_time}{id}.pth'
@@ -122,6 +121,7 @@ if __name__ == '__main__':
 
     amp = True  # 是否使用混合精度训练和推断加速
 
+    action_num = 6  # 动作个数，可选6，7(增加回到起点)
     state_channel = 3  # 状态图通道数，可选2，3
     state_size = [21, 21, 9]  # 状态图大小
     norm_method = 'norm'  # 状态图归一化方法，可选：min_max, norm
@@ -145,27 +145,31 @@ if __name__ == '__main__':
 
     val_update = False  # 是否经过验证集后才真正更新网络参数
 
-    train_spot_type = 'random_spot'  # 设置训练起点类型，可选random_spot，max_prob_spot
-    val_spot_type = 'max_prob_spot'  # 设置验证起点类型，可选random_spot，max_prob_spot
+    train_spot_type = 'edge_spot'  # 设置训练起点类型，可选random_spot，max_prob_spot，edge_spot
+    val_spot_type = 'edge_spot'  # 设置验证起点类型，可选random_spot，max_prob_spot，edge_spot
 
-    net_name = ['PolicyNetStep', 'ValueNetStep']  # 网络选择，需要根据不同强化学习算法选择一个或两个网络
+    net_name = ['PolicyNetLight', 'ValueNetLight']  # 网络选择，需要根据不同强化学习算法选择一个或两个网络
     OI = True  # 是否使用正交初始化
 
     # 策略网络
     if 'PolicyNet' in net_name:
-        policy_net = PolicyNet(state_channel, OI).to(device)
+        policy_net = PolicyNet(action_num, state_channel, OI).to(device)
+    if 'PolicyNetLight' in net_name:
+        policy_net = PolicyNetLight(action_num, state_channel, OI).to(device)
     if 'PolicyNet2' in net_name:
-        policy_net = PolicyNet2(state_channel, OI).to(device)
+        policy_net = PolicyNet2(action_num, state_channel, OI).to(device)
     if 'PolicyResNet' in net_name:
-        policy_net = PolicyResNet(state_channel, OI).to(device)
+        policy_net = PolicyResNet(action_num, state_channel, OI).to(device)
     if 'PolicyNetStep' in net_name:
-        policy_net = PolicyNetStep(state_channel, OI).to(device)
+        policy_net = PolicyNetStep(action_num, state_channel, OI).to(device)
     if 'PolicyNetStepGelu' in net_name:
-        policy_net = PolicyNetStepGelu(state_channel, OI).to(device)
+        policy_net = PolicyNetStepGelu(action_num, state_channel, OI).to(device)
 
     # 价值网络
     if 'ValueNet' in net_name:
         value_net = ValueNet(state_channel, OI).to(device)
+    if 'ValueNetLight' in net_name:
+        value_net = ValueNetLight(state_channel, OI).to(device)
     if 'ValueNet2' in net_name:
         value_net = ValueNet2(state_channel, OI).to(device)
     if 'ValueResNet' in net_name:
@@ -176,12 +180,12 @@ if __name__ == '__main__':
         value_net = ValueNetStepGelu(state_channel, OI).to(device)
 
     # q值网络
-    if 'VANet' in net_name:
-        q_net = VANet(state_channel, OI).to(device)
     if 'QNet' in net_name:
-        q_net = QNet(state_channel, OI).to(device)
+        q_net = QNet(action_num, state_channel, OI).to(device)
+    if 'VANet' in net_name:
+        q_net = VANet(action_num, state_channel, OI).to(device)
     if 'VANetRelu' in net_name:
-        q_net = VANetRelu(state_channel, OI).to(device)
+        q_net = VANetRelu(action_num, state_channel, OI).to(device)
 
     """特定参数设置"""
     # PPO算法
@@ -230,6 +234,7 @@ if __name__ == '__main__':
         amp = {amp}
         step_max = {step_max}  step_limit_max = {step_limit_max}
         num_episodes = {num_episodes}
+        action_num = {action_num}
         state_channel = {state_channel}  state_size = {state_size}
         norm_method = {norm_method}
         state_mode = {state_mode}  state_norm = {state_norm}
@@ -254,7 +259,8 @@ if __name__ == '__main__':
         epochs = {epochs}  agent_epochs = {agent_epochs}
         step_max = {step_max}  step_limit_max = {step_limit_max}
         num_episodes = {num_episodes}
-        state_size = {state_size}
+        action_num = {action_num}
+        state_channel = {state_channel}  state_size = {state_size}
         state_mode = {state_mode}
         reward_mode = {reward_mode}
         out_mode = {out_mode}  out_reward_mode = {out_reward_mode}
@@ -275,7 +281,8 @@ if __name__ == '__main__':
         epochs = {epochs}  agent_epochs = {agent_epochs}
         step_max = {step_max}  step_limit_max = {step_limit_max}
         num_episodes = {num_episodes}
-        state_size = {state_size}
+        action_num = {action_num}
+        state_channel = {state_channel}  state_size = {state_size}
         state_mode = {state_mode}
         reward_mode = {reward_mode}
         out_mode = {out_mode}  out_reward_mode = {out_reward_mode}
@@ -308,7 +315,7 @@ if __name__ == '__main__':
         train_ppo(train_files=train_files,
                   val_files=val_files,
                   agent=agent,
-                  env=env,
+                  Env=Env,
                   state_channel=state_channel,
                   state_size=state_size,
                   norm_method=norm_method,
@@ -356,7 +363,7 @@ if __name__ == '__main__':
         train_ppo_step(train_files=train_files,
                        val_files=val_files,
                        agent=agent,
-                       env=env,
+                       Env=Env,
                        state_channel=state_channel,
                        state_size=state_size,
                        epochs=epochs,
@@ -390,7 +397,7 @@ if __name__ == '__main__':
         train_d3qn(train_files=train_files,
                    val_files=val_files,
                    agent=agent,
-                   env=env,
+                   Env=Env,
                    buffer_size=buffer_size,
                    minimal_size=minimal_size,
                    batch_size=batch_size,
@@ -429,7 +436,7 @@ if __name__ == '__main__':
         train_sac(train_files=train_files,
                   val_files=val_files,
                   agent=agent,
-                  env=env,
+                  Env=Env,
                   buffer_size=buffer_size,
                   minimal_size=minimal_size,
                   batch_size=batch_size,

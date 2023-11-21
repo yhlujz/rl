@@ -16,7 +16,7 @@ from monai.data import CacheDataset, DataLoader, decollate_batch
 
 def pred_ppo(test_files,
              agent,
-             env,
+             Env,
              state_size,
              norm_method,
              num_workers,
@@ -102,7 +102,7 @@ def pred_ppo(test_files,
                 test_data["pred"].to(device),
                 test_data["prob"].to(device),
             )
-            env = env(images[0],
+            env = Env(images[0],
                       masks[0],
                       preds[0],
                       probs[0][1],

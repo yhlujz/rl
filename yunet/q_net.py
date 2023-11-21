@@ -10,9 +10,9 @@ from .net_parts import (
 
 
 class QNet(nn.Module):
-    """q值网络：输入21X21X9Xc的状态，输出6个动作的价值"""
+    """q值网络：输入21X21X9Xc的状态，输出n个动作的价值"""
 
-    def __init__(self, state_channel, OI):
+    def __init__(self, action_num, state_channel, OI):
         super().__init__()
 
         self.inc = DoubleConv(state_channel, 8)
@@ -20,7 +20,7 @@ class QNet(nn.Module):
         self.down2 = Down(16, 32)
         self.fc1 = nn.Linear(1600, 256)
         self.fc2 = nn.Linear(256, 64)
-        self.fc3 = nn.Linear(66, 6)
+        self.fc3 = nn.Linear(66, action_num)
         if OI:
             # 正交初始化
             for m in self.modules():
@@ -41,9 +41,9 @@ class QNet(nn.Module):
 
 
 class VANet(nn.Module):
-    """q值网络：输入21X21X9Xc的状态，输出6个动作的价值"""
+    """q值网络：输入21X21X9Xc的状态，输出n个动作的价值"""
 
-    def __init__(self, state_channel, OI):
+    def __init__(self, action_num, state_channel, OI):
         super().__init__()
 
         self.inc = DoubleConv(state_channel, 8)
@@ -52,7 +52,7 @@ class VANet(nn.Module):
         self.fc1 = nn.Linear(1600, 256)
         self.fc2 = nn.Linear(256, 64)  # 以上为共享网络部分
         self.fc3 = nn.Linear(66, 1)
-        self.fc4 = nn.Linear(66, 6)
+        self.fc4 = nn.Linear(66, action_num)
         if OI:
             # 正交初始化
             for m in self.modules():
@@ -76,9 +76,9 @@ class VANet(nn.Module):
 
 
 class VANetRelu(nn.Module):
-    """q值网络：输入21X21X9Xc的状态，输出6个动作的价值"""
+    """q值网络：输入21X21X9Xc的状态，输出n个动作的价值"""
 
-    def __init__(self, state_channel, OI):
+    def __init__(self, action_num, state_channel, OI):
         super().__init__()
 
         self.inc = DoubleConvRelu(state_channel, 8)
@@ -87,7 +87,7 @@ class VANetRelu(nn.Module):
         self.fc1 = nn.Linear(1600, 256)
         self.fc2 = nn.Linear(256, 64)  # 以上为共享网络部分
         self.fc3 = nn.Linear(66, 1)
-        self.fc4 = nn.Linear(66, 6)
+        self.fc4 = nn.Linear(66, action_num)
         if OI:
             # 正交初始化
             for m in self.modules():
