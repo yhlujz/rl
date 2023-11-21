@@ -54,6 +54,9 @@ class CTEnv:
         # 创建与标注大小相同的预测图
         self.pred_padding = torch.zeros_like(self.mask_padding).int()
 
+        # 记录标注总点数
+        self.mask_spots_n = self.mask_padding.sum().item()
+
         # 根据已预测图像随机初始化起点(注意：起点坐标为padding后的坐标)
         spots = torch.nonzero(self.preded_padding)
         spots_n = len(spots)  # 记录标注点的数量
