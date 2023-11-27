@@ -160,7 +160,7 @@ class ValueNetStep(nn.Module):
         x3 = self.down2(x2).view(-1, 1600)  # 展平为一维张量
         x4 = torch.tanh(self.fc1(x3))
         x5 = torch.tanh(self.fc2(x4))
-        x6 = self.fc3(x5)
+        x6 = self.fc3(torch.cat((x5, y, z), dim=1))
         return x6
 
 
@@ -191,7 +191,7 @@ class ValueNetStep2(nn.Module):
         x3 = self.down2(x2).view(-1, 1600)  # 展平为一维张量
         x4 = torch.tanh(self.fc1(x3))
         x5 = torch.tanh(self.fc2(torch.cat((x4, y, z), dim=1)))
-        x6 = self.fc3(torch.cat((x5, y, z), dim=1))
+        x6 = self.fc3(x5)
         return x6
 
 
