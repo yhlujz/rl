@@ -19,15 +19,19 @@ from yunet import (
     PolicyNet2,
     PolicyResNet,
     PolicyNetStep,
+    PolicyNetStep2,
     PolicyNetStepGelu,
     ValueNet,
     ValueNetLight,
     ValueNet2,
     ValueResNet,
     ValueNetStep,
+    ValueNetStep2,
     ValueNetStepGelu,
     QNet,
+    QNet2,
     VANet,
+    VANet2,
     VANetRelu,
 )
 
@@ -68,10 +72,10 @@ if __name__ == '__main__':
 
     """必要参数设置"""
     # 训练编号
-    id = '0'
+    id = '7'
 
     # 设置GPU
-    GPU_id = '0'
+    GPU_id = '7'
     os.environ["CUDA_VISIBLE_DEVICES"] = GPU_id
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device {device}\n')
@@ -88,10 +92,10 @@ if __name__ == '__main__':
     train_files, val_files = divide_dataset(json_path)
 
     # 算法选择，可选ppo,ppo_step,sac,d3qn
-    algo = 'ppo'
+    algo = 'ppo_step'
 
     # 环境选择，可选CTEnv,CTEnvStep
-    Env = CTEnv
+    Env = CTEnvStep
 
     # 设置模型保存路径
     valueNet_path = f'/workspace/data/rl/model/{algo}_value{date_time}{id}.pth'
@@ -148,7 +152,7 @@ if __name__ == '__main__':
     train_spot_type = 'edge_spot'  # 设置训练起点类型，可选random_spot，max_prob_spot，edge_spot
     val_spot_type = 'edge_spot'  # 设置验证起点类型，可选random_spot，max_prob_spot，edge_spot
 
-    net_name = ['PolicyNetLight', 'ValueNetLight']  # 网络选择，需要根据不同强化学习算法选择一个或两个网络
+    net_name = ['PolicyNetStep2', 'ValueNetStep2']  # 网络选择，需要根据不同强化学习算法选择一个或两个网络
     OI = True  # 是否使用正交初始化
 
     # 策略网络
@@ -162,6 +166,8 @@ if __name__ == '__main__':
         policy_net = PolicyResNet(action_num, state_channel, OI).to(device)
     if 'PolicyNetStep' in net_name:
         policy_net = PolicyNetStep(action_num, state_channel, OI).to(device)
+    if 'PolicyNetStep2' in net_name:
+        policy_net = PolicyNetStep2(action_num, state_channel, OI).to(device)
     if 'PolicyNetStepGelu' in net_name:
         policy_net = PolicyNetStepGelu(action_num, state_channel, OI).to(device)
 
@@ -176,14 +182,20 @@ if __name__ == '__main__':
         value_net = ValueResNet(state_channel, OI).to(device)
     if 'ValueNetStep' in net_name:
         value_net = ValueNetStep(state_channel, OI).to(device)
+    if 'ValueNetStep2' in net_name:
+        value_net = ValueNetStep2(state_channel, OI).to(device)
     if 'ValueNetStepGelu' in net_name:
         value_net = ValueNetStepGelu(state_channel, OI).to(device)
 
     # q值网络
     if 'QNet' in net_name:
         q_net = QNet(action_num, state_channel, OI).to(device)
+    if 'QNet2' in net_name:
+        q_net = QNet2(action_num, state_channel, OI).to(device)
     if 'VANet' in net_name:
         q_net = VANet(action_num, state_channel, OI).to(device)
+    if 'VANet2' in net_name:
+        q_net = VANet2(action_num, state_channel, OI).to(device)
     if 'VANetRelu' in net_name:
         q_net = VANetRelu(action_num, state_channel, OI).to(device)
 
