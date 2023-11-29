@@ -113,7 +113,7 @@ if __name__ == '__main__':
                         force=True)  # 强制写入info级别以上的日志
 
     """公用参数设置"""
-    lr_decay = True  # 是否使用学习率衰减（线性衰减）
+    lr_decay = [1, 0]  # 学习率衰减（线性衰减）范围
 
     optimizer = 'AdamW'  # 优化器选用，可选：Adam, AdamW
     adam_eps = 1e-5  # adam优化器限制值

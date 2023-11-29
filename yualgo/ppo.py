@@ -46,16 +46,14 @@ class PPO:
             self.critic_optimizer = torch.optim.Adam(self.critic.parameters(),
                                                      lr=critic_lr, eps=adam_eps)
         # 初始化学习率衰减策略
-        self.lr_decay = lr_decay
-        if self.lr_decay:
-            self.actor_scheduler = LinearLR(optimizer=self.actor_optimizer,
-                                            start_factor=1,
-                                            end_factor=0,
-                                            total_iters=total_steps)
-            self.critic_scheduler = LinearLR(optimizer=self.critic_optimizer,
-                                             start_factor=1,
-                                             end_factor=0,
-                                             total_iters=total_steps)
+        self.actor_scheduler = LinearLR(optimizer=self.actor_optimizer,
+                                        start_factor=lr_decay[0],
+                                        end_factor=lr_decay[1],
+                                        total_iters=total_steps)
+        self.critic_scheduler = LinearLR(optimizer=self.critic_optimizer,
+                                         start_factor=lr_decay[0],
+                                         end_factor=lr_decay[1],
+                                         total_iters=total_steps)
         # 初始化用于混合精度训练的梯度放大器
         self.amp = amp
         if self.amp:
@@ -252,9 +250,8 @@ class PPO:
                     torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
                     self.critic_optimizer.step()
             # 若采用学习率衰减，则更新学习率
-            if self.lr_decay:
-                self.actor_scheduler.step()
-                self.critic_scheduler.step()
+            self.actor_scheduler.step()
+            self.critic_scheduler.step()
 
     def save_model(self):
         """保存训练好的策略网络模型和价值网络模型"""
