@@ -72,10 +72,10 @@ if __name__ == '__main__':
 
     """必要参数设置"""
     # 训练编号
-    id = '7'
+    id = '3'
 
     # 设置GPU
-    GPU_id = '7'
+    GPU_id = '3'
     os.environ["CUDA_VISIBLE_DEVICES"] = GPU_id
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device {device}\n')
@@ -92,10 +92,10 @@ if __name__ == '__main__':
     train_files, val_files = divide_dataset(json_path)
 
     # 算法选择，可选ppo,ppo_step,sac,d3qn
-    algo = 'ppo_step'
+    algo = 'ppo'
 
     # 环境选择，可选CTEnv,CTEnvStep
-    Env = CTEnvStep
+    Env = CTEnv
 
     # 设置模型保存路径
     valueNet_path = f'/workspace/data/rl/model/{algo}_value{date_time}{id}.pth'
@@ -124,6 +124,7 @@ if __name__ == '__main__':
     reward_norm = False  # 是否使用奖励标准化
 
     amp = True  # 是否使用混合精度训练和推断加速
+    comp = True  # 是否使用编译加速
 
     action_num = 6  # 动作个数，可选6，7(增加回到起点)
     state_channel = 3  # 状态图通道数，可选2，3
@@ -152,7 +153,7 @@ if __name__ == '__main__':
     train_spot_type = 'edge_spot'  # 设置训练起点类型，可选random_spot，max_prob_spot，edge_spot
     val_spot_type = 'edge_spot'  # 设置验证起点类型，可选random_spot，max_prob_spot，edge_spot
 
-    net_name = ['PolicyNetStep2', 'ValueNetStep2']  # 网络选择，需要根据不同强化学习算法选择一个或两个网络
+    net_name = ['PolicyNet', 'ValueNet']  # 网络选择，需要根据不同强化学习算法选择一个或两个网络
     OI = True  # 是否使用正交初始化
 
     # 策略网络
@@ -243,7 +244,7 @@ if __name__ == '__main__':
         epochs = {epochs}  agent_epochs = {agent_epochs}
         batch_size = {batch_size}
         adv_norm = {adv_norm}  entropy_coef = {entropy_coef}
-        amp = {amp}
+        amp = {amp}  comp = {comp}
         step_max = {step_max}  step_limit_max = {step_limit_max}
         num_episodes = {num_episodes}
         action_num = {action_num}
@@ -319,6 +320,7 @@ if __name__ == '__main__':
                     gamma=gamma,
                     adv_norm=adv_norm,
                     amp=amp,
+                    comp=comp,
                     device=device,
                     valueNet_path=valueNet_path,
                     policyNet_path=policyNet_path,

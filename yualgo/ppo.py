@@ -24,6 +24,7 @@ class PPO:
                  gamma,
                  adv_norm,
                  amp,
+                 comp,
                  device,
                  valueNet_path,
                  policyNet_path,
@@ -32,8 +33,12 @@ class PPO:
         # 设置GPU设备
         self.device = device
         # 初始化策略网络和价值网络
-        self.actor = policy_net.to(self.device)
-        self.critic = value_net.to(self.device)
+        if comp:
+            self.actor = torch.compile(policy_net, mode='max-autotune').to(self.device)
+            self.critic = torch.compile(value_net, mode='max-autotune').to(self.device)
+        else:
+            self.actor = policy_net.to(self.device)
+            self.critic = value_net.to(self.device)
         # 初始化网络优化函数
         if optimizer == 'AdamW':
             self.actor_optimizer = torch.optim.AdamW(self.actor.parameters(),
