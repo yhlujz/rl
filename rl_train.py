@@ -370,6 +370,7 @@ if __name__ == '__main__':
                         gamma=gamma,
                         adv_norm=adv_norm,
                         amp=amp,
+                        comp=comp,
                         device=device,
                         valueNet_path=valueNet_path,
                         policyNet_path=policyNet_path,
