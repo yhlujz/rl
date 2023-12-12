@@ -18,7 +18,6 @@ class PPOStep:
                  adam_eps,
                  lmbda,
                  agent_epochs,
-                 batch_size,
                  eps,
                  entropy_coef,
                  gamma,
@@ -70,7 +69,6 @@ class PPOStep:
         self.adv_norm = adv_norm  # 是否使用优势估计标准化
         # 设置训练相关参数
         self.agent_epochs = agent_epochs  # 一条序列的数据用来训练的轮数
-        self.batch_size = batch_size  # 每次梯度下降的步数
         # 设置模型保存路径
         self.valueNet_path = valueNet_path
         self.policyNet_path = policyNet_path
@@ -143,7 +141,31 @@ class PPOStep:
         old_log_probs = torch.log(self.actor(states, covers, steps).gather(1, actions)).detach()  # 取出对应动作的概率值
 
         for _ in range(self.agent_epochs):
-            with torch.cuda.amp.autocast():
+            if self.amp:  # 若采用混合精度训练
+                with torch.cuda.amp.autocast():
+                    probs = self.actor(states, covers, steps)
+                    entropy = -(torch.log(probs) * probs).sum(-1).mean()  # 计算策略熵
+                    log_probs = torch.log(probs.gather(1, actions))  # 取出对应动作的概率值
+                    ratio = torch.exp(log_probs - old_log_probs)  # 新旧动作概率的比值
+                    surr1 = ratio * advantage
+                    surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps) * advantage  # 截断
+                    actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
+                    critic_loss = torch.mean(F.mse_loss(self.critic(states, covers, steps), td_target.detach()))
+
+                self.actor_optimizer.zero_grad()
+                self.actor_scaler.scale(actor_loss).backward()
+                self.actor_scaler.unscale_(self.actor_optimizer)
+                torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
+                self.actor_scaler.step(self.actor_optimizer)
+                self.actor_scaler.update()
+
+                self.critic_optimizer.zero_grad()
+                self.critic_scaler.scale(critic_loss).backward()
+                self.critic_scaler.unscale_(self.critic_optimizer)
+                torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
+                self.critic_scaler.step(self.critic_optimizer)
+                self.critic_scaler.update()
+            else:
                 probs = self.actor(states, covers, steps)
                 entropy = -(torch.log(probs) * probs).sum(-1).mean()  # 计算策略熵
                 log_probs = torch.log(probs.gather(1, actions))  # 取出对应动作的概率值
@@ -153,19 +175,15 @@ class PPOStep:
                 actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
                 critic_loss = torch.mean(F.mse_loss(self.critic(states, covers, steps), td_target.detach()))
 
-            self.actor_optimizer.zero_grad()
-            self.actor_scaler.scale(actor_loss).backward()
-            self.actor_scaler.unscale_(self.actor_optimizer)
-            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
-            self.actor_scaler.step(self.actor_optimizer)
-            self.actor_scaler.update()
+                self.actor_optimizer.zero_grad()
+                actor_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
+                self.actor_optimizer.step()
 
-            self.critic_optimizer.zero_grad()
-            self.critic_scaler.scale(critic_loss).backward()
-            self.critic_scaler.unscale_(self.critic_optimizer)
-            torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
-            self.critic_scaler.step(self.critic_optimizer)
-            self.critic_scaler.update()
+                self.critic_optimizer.zero_grad()
+                critic_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
+                self.critic_optimizer.step()
             # 若采用学习率衰减，则更新学习率
             self.actor_scheduler.step()
             self.critic_scheduler.step()

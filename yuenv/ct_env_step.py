@@ -14,10 +14,8 @@ class CTEnvStep:
                  state_channel,
                  state_size,
                  step_max,
-                 step_limit_max,
                  state_mode,
                  reward_mode,
-                 out_mode,
                  out_reward_mode,
                  ):
         self.image = image  # 初始化image
@@ -28,14 +26,11 @@ class CTEnvStep:
         self.state_channel = state_channel  # 初始化状态图通道数
         self.state_size = state_size  # 初始化状态图大小
         self.step_max = step_max  # 限制最大步数
-        self.step_limit_max = step_limit_max  # 限制无新标注的探索步数
         self.state_mode = state_mode  # 设置状态返回模式
         self.reward_mode = reward_mode  # 设置奖励函数模式
-        self.out_mode = out_mode  # 设置边界外是否停止
         self.out_reward_mode = out_reward_mode  # 设置边界外奖励函数
 
         self.step_n = 0  # 初始步数
-        self.step_limit_n = 0  # 初始无新标注步数
         self.dice = 0  # 初始化dice值
         self.cover = 0  # 初始化cover值
 
@@ -88,7 +83,6 @@ class CTEnvStep:
     def reset(self, spot_type):
         """回归初始状态（预测图只包含随机起点的状态）并返回初始状态值"""
         self.step_n = 0  # 步数置0
-        self.step_limit_n = 0  # 无新标注步数置0
         if spot_type == 'random_spot':
             self.spot = self.random_spot  # 重新初始化智能体位置坐标
         elif spot_type == 'max_prob_spot':
@@ -137,8 +131,6 @@ class CTEnvStep:
         done = False  # 默认为未完成
         # 如果超出边界
         if self.spot_is_out():
-            if self.out_mode:
-                done = True
             next_state = self.spot_to_state()  # 超出边界时状态图不移动
             # 根据不同模式计算超出边界时的reward
             if self.out_reward_mode == 'small':
@@ -168,16 +160,8 @@ class CTEnvStep:
             self.dice = dice_new
             if self.state_mode == 'pre':
                 next_state = self.spot_to_state()  # pre模式先标注后返回状态
-        cover_new = self.pred_cover()
-        cover_inc = cover_new - self.cover
-        self.cover = cover_new
+        self.cover = self.pred_cover()
         # 判断是否达到步数限制条件
-        if cover_inc > 0:
-            self.step_limit_n = 0  # 清空无新标注覆盖步数
-        else:
-            self.step_limit_n += 1  # 无新标注覆盖步数累积
-        if self.step_limit_n >= self.step_limit_max:
-            done = True
         if self.step_n >= self.step_max:
             done = True
         return next_state, self.cover, (self.step_max - self.step_n) / self.step_max, reward, done

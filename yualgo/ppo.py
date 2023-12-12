@@ -18,7 +18,6 @@ class PPO:
                  adam_eps,
                  lmbda,
                  agent_epochs,
-                 batch_size,
                  eps,
                  entropy_coef,
                  gamma,
@@ -28,7 +27,6 @@ class PPO:
                  device,
                  valueNet_path,
                  policyNet_path,
-                 val_update,
                  ):
         # 设置GPU设备
         self.device = device
@@ -72,32 +70,15 @@ class PPO:
         self.adv_norm = adv_norm  # 是否使用优势估计标准化
         # 设置训练相关参数
         self.agent_epochs = agent_epochs  # 一条序列的数据用来训练的轮数
-        self.batch_size = batch_size  # 每次梯度下降的步数
         # 设置模型保存路径
         self.valueNet_path = valueNet_path
         self.policyNet_path = policyNet_path
-        # 若启用验证后更新模式，需要再创建一套临时网络
-        if val_update:
-            self.temp_actor = policy_net.to(self.device)
-            self.temp_critic = value_net.to(self.device)
-            self.temp_actor.load_state_dict(self.actor.state_dict())
-            self.temp_critic.load_state_dict(self.critic.state_dict())
 
     def get_lr(self):
         """获取当前学习率"""
         actor_lr = self.actor_scheduler.get_last_lr()
         critic_lr = self.critic_scheduler.get_last_lr()
         return actor_lr, critic_lr
-
-    def real_to_temp(self):
-        """将实际网络参数赋值给临时网络参数"""
-        self.temp_actor.load_state_dict(self.actor.state_dict())
-        self.temp_critic.load_state_dict(self.critic.state_dict())
-
-    def temp_to_real(self):
-        """将临时网络参数赋值回实际网络参数"""
-        self.actor.load_state_dict(self.temp_actor.state_dict())
-        self.critic.load_state_dict(self.temp_critic.state_dict())
 
     def compute_advantage(self, td_delta):
         """广义优势估计GAE"""
@@ -153,89 +134,8 @@ class PPO:
         old_log_probs = torch.log(self.actor(states).gather(1, actions)).detach()  # 取出对应动作的概率值
 
         for _ in range(self.agent_epochs):
-            if self.batch_size:
-                # 若采用minibatch更新方式，则将数据切分为数个batch
-                batch_step = np.arange(0, len(states), self.batch_size)
-                indices = np.arange(len(states), dtype=np.int64)
-                np.random.shuffle(indices)
-                batches = [indices[i:i+self.batch_size] for i in batch_step]
-                # 随机梯度下降
-                for batch in batches:
-                    states_batch = states[batch]
-                    actions_batch = actions[batch]
-                    old_log_probs_batch = old_log_probs[batch]
-                    advantage_batch = advantage[batch]
-                    td_target_batch = td_target[batch]
-                    if self.amp:  # 若采用混合精度训练
-                        with torch.cuda.amp.autocast():
-                            probs = self.actor(states_batch)
-                            entropy = -(torch.log(probs) * probs).sum(-1).mean()  # 计算策略熵
-                            log_probs = torch.log(probs.gather(1, actions_batch))  # 取出对应动作的概率值
-                            ratio = torch.exp(log_probs - old_log_probs_batch)  # 新旧动作概率的比值
-                            surr1 = ratio * advantage_batch
-                            surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps) * advantage_batch  # 截断
-                            actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
-                            critic_loss = torch.mean(F.mse_loss(self.critic(states_batch), td_target_batch.detach()))
-
-                        self.actor_optimizer.zero_grad()
-                        self.actor_scaler.scale(actor_loss).backward()  # 梯度缩放
-                        self.actor_scaler.unscale_(self.actor_optimizer)  # 梯度反向缩放
-                        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)  # 梯度裁剪
-                        self.actor_scaler.step(self.actor_optimizer)
-                        self.actor_scaler.update()
-
-                        self.critic_optimizer.zero_grad()
-                        self.critic_scaler.scale(critic_loss).backward()
-                        self.critic_scaler.unscale_(self.critic_optimizer)
-                        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
-                        self.critic_scaler.step(self.critic_optimizer)
-                        self.critic_scaler.update()
-                    else:
-                        probs = self.actor(states_batch)
-                        entropy = -(torch.log(probs) * probs).sum(-1).mean()  # 计算策略熵
-                        log_probs = torch.log(probs.gather(1, actions_batch))  # 取出对应动作的概率值
-                        ratio = torch.exp(log_probs - old_log_probs_batch)  # 新旧动作概率的比值
-                        surr1 = ratio * advantage_batch
-                        surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps) * advantage_batch  # 截断
-                        actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
-                        critic_loss = torch.mean(F.mse_loss(self.critic(states_batch), td_target_batch.detach()))
-
-                        self.actor_optimizer.zero_grad()
-                        actor_loss.backward()
-                        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
-                        self.actor_optimizer.step()
-
-                        self.critic_optimizer.zero_grad()
-                        critic_loss.backward()
-                        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
-                        self.critic_optimizer.step()
-            else:
-                # 若不采用minibatch更新方式，则整个序列作为一个batch一起更新
-                if self.amp:  # 若采用混合精度训练
-                    with torch.cuda.amp.autocast():
-                        probs = self.actor(states)
-                        entropy = -(torch.log(probs) * probs).sum(-1).mean()  # 计算策略熵
-                        log_probs = torch.log(probs.gather(1, actions))  # 取出对应动作的概率值
-                        ratio = torch.exp(log_probs - old_log_probs)  # 新旧动作概率的比值
-                        surr1 = ratio * advantage
-                        surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps) * advantage  # 截断
-                        actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
-                        critic_loss = torch.mean(F.mse_loss(self.critic(states), td_target.detach()))
-
-                    self.actor_optimizer.zero_grad()
-                    self.actor_scaler.scale(actor_loss).backward()
-                    self.actor_scaler.unscale_(self.actor_optimizer)
-                    torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
-                    self.actor_scaler.step(self.actor_optimizer)
-                    self.actor_scaler.update()
-
-                    self.critic_optimizer.zero_grad()
-                    self.critic_scaler.scale(critic_loss).backward()
-                    self.critic_scaler.unscale_(self.critic_optimizer)
-                    torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
-                    self.critic_scaler.step(self.critic_optimizer)
-                    self.critic_scaler.update()
-                else:
+            if self.amp:  # 若采用混合精度训练
+                with torch.cuda.amp.autocast():
                     probs = self.actor(states)
                     entropy = -(torch.log(probs) * probs).sum(-1).mean()  # 计算策略熵
                     log_probs = torch.log(probs.gather(1, actions))  # 取出对应动作的概率值
@@ -245,15 +145,38 @@ class PPO:
                     actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
                     critic_loss = torch.mean(F.mse_loss(self.critic(states), td_target.detach()))
 
-                    self.actor_optimizer.zero_grad()
-                    actor_loss.backward()
-                    torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
-                    self.actor_optimizer.step()
+                self.actor_optimizer.zero_grad()
+                self.actor_scaler.scale(actor_loss).backward()
+                self.actor_scaler.unscale_(self.actor_optimizer)
+                torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
+                self.actor_scaler.step(self.actor_optimizer)
+                self.actor_scaler.update()
 
-                    self.critic_optimizer.zero_grad()
-                    critic_loss.backward()
-                    torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
-                    self.critic_optimizer.step()
+                self.critic_optimizer.zero_grad()
+                self.critic_scaler.scale(critic_loss).backward()
+                self.critic_scaler.unscale_(self.critic_optimizer)
+                torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
+                self.critic_scaler.step(self.critic_optimizer)
+                self.critic_scaler.update()
+            else:
+                probs = self.actor(states)
+                entropy = -(torch.log(probs) * probs).sum(-1).mean()  # 计算策略熵
+                log_probs = torch.log(probs.gather(1, actions))  # 取出对应动作的概率值
+                ratio = torch.exp(log_probs - old_log_probs)  # 新旧动作概率的比值
+                surr1 = ratio * advantage
+                surr2 = torch.clamp(ratio, 1 - self.eps, 1 + self.eps) * advantage  # 截断
+                actor_loss = torch.mean(-torch.min(surr1, surr2)) - entropy * self.entropy_coef  # PPO损失函数
+                critic_loss = torch.mean(F.mse_loss(self.critic(states), td_target.detach()))
+
+                self.actor_optimizer.zero_grad()
+                actor_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
+                self.actor_optimizer.step()
+
+                self.critic_optimizer.zero_grad()
+                critic_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
+                self.critic_optimizer.step()
             # 若采用学习率衰减，则更新学习率
             self.actor_scheduler.step()
             self.critic_scheduler.step()

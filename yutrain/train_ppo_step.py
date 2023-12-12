@@ -5,6 +5,7 @@ import logging
 from monai.transforms import (
     Compose,
     LoadImaged,
+    ScaleIntensityRanged,
     EnsureTyped,
     ThresholdIntensityd,
     NormalizeIntensityd,
@@ -19,14 +20,13 @@ def train_ppo_step(train_files,
                    Env,
                    state_channel,
                    state_size,
+                   norm_method,
                    epochs,
                    num_workers,
                    step_max,
-                   step_limit_max,
                    num_episodes,
                    state_mode,
                    reward_mode,
-                   out_mode,
                    out_reward_mode,
                    train_certain,
                    val_certain,
@@ -37,21 +37,36 @@ def train_ppo_step(train_files,
     """训练"""
 
     # 定义图像前处理规则
-    transforms = Compose(
-        [
-            LoadImaged(keys=["image", "mask", "pred"]),   # 载入图像
-            LoadImaged(keys=["prob"],
-                       reader="NumpyReader",
-                       npz_keys='probabilities'),  # 载入预测概率图
-            Orientationd(keys=["prob"], axcodes="SAR"),
-            ThresholdIntensityd(keys=["image"], threshold=72, above=True, cval=72),
-            ThresholdIntensityd(keys=["image"], threshold=397, above=False, cval=397),
-            NormalizeIntensityd(keys=["image"],
-                                subtrahend=226.2353057861328,
-                                divisor=62.27060317993164),
-            EnsureTyped(keys=["image", "mask", "pred", "prob"])  # 转换为tensor
-        ]
-    )
+    if norm_method == 'min_max':
+        transforms = Compose(
+            [
+                LoadImaged(keys=["image", "mask", "pred"]),   # 载入图像
+                LoadImaged(keys=["prob"],
+                           reader="NumpyReader",
+                           npz_keys='probabilities'),  # 载入预测概率图
+                Orientationd(keys=["prob"], axcodes="SAR"),
+                ScaleIntensityRanged(keys=["image"], a_min=-135, a_max=215,
+                                     b_min=0, b_max=1,
+                                     clip=True),  # 归一化
+                EnsureTyped(keys=["image", "mask", "pred", "prob"])  # 转换为tensor
+            ]
+        )
+    elif norm_method == 'norm':
+        transforms = Compose(
+            [
+                LoadImaged(keys=["image", "mask", "pred"]),   # 载入图像
+                LoadImaged(keys=["prob"],
+                           reader="NumpyReader",
+                           npz_keys='probabilities'),  # 载入预测概率图
+                Orientationd(keys=["prob"], axcodes="SAR"),
+                ThresholdIntensityd(keys=["image"], threshold=72, above=True, cval=72),
+                ThresholdIntensityd(keys=["image"], threshold=397, above=False, cval=397),
+                NormalizeIntensityd(keys=["image"],
+                                    subtrahend=226.2353057861328,
+                                    divisor=62.27060317993164),
+                EnsureTyped(keys=["image", "mask", "pred", "prob"])  # 转换为tensor
+            ]
+        )
 
     # 创建数据集并加载数据
     train_ds = CacheDataset(data=train_files, transform=transforms, cache_rate=1.0, num_workers=num_workers)
@@ -94,10 +109,8 @@ def train_ppo_step(train_files,
                           state_channel,
                           state_size,
                           step_max,
-                          step_limit_max,
                           state_mode,
                           reward_mode,
-                          out_mode,
                           out_reward_mode)  # 初始化环境
                 for _ in range(num_episodes):
                     episode_return = 0  # 记录一个序列的总回报
@@ -177,10 +190,8 @@ def train_ppo_step(train_files,
                           state_channel,
                           state_size,
                           step_max,
-                          step_limit_max,
                           state_mode,
                           reward_mode,
-                          out_mode,
                           out_reward_mode)  # 初始化环境
                 state, cover, step = env.reset(spot_type=val_spot_type)
                 done = False

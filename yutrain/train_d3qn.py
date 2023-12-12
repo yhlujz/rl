@@ -50,11 +50,9 @@ def train_d3qn(train_files,
                epochs,
                num_workers,
                step_max,
-               step_limit_max,
                num_episodes,
                state_mode,
                reward_mode,
-               out_mode,
                out_reward_mode,
                train_spot_type,
                val_spot_type,
@@ -123,10 +121,8 @@ def train_d3qn(train_files,
                           state_channel,
                           state_size,
                           step_max,
-                          step_limit_max,
                           state_mode,
                           reward_mode,
-                          out_mode,
                           out_reward_mode)  # 初始化环境
                 for _ in range(num_episodes):
                     episode_return = 0  # 记录一个序列的总回报
@@ -201,10 +197,8 @@ def train_d3qn(train_files,
                           state_channel,
                           state_size,
                           step_max,
-                          step_limit_max,
                           state_mode,
                           reward_mode,
-                          out_mode,
                           out_reward_mode)  # 初始化环境
                 state, cover, step = env.reset(spot_type=val_spot_type)
                 done = False

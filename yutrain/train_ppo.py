@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 from tqdm import tqdm
 import logging
 
@@ -15,59 +14,6 @@ from monai.transforms import (
 from monai.data import CacheDataset, DataLoader
 
 
-class RunningMeanStd:
-    """动态计算mean和std"""
-    def __init__(self, shape):  # shape:the dimension of input data
-        self.n = 0
-        self.mean = np.zeros(shape)
-        self.S = np.zeros(shape)
-        self.std = np.sqrt(self.S)
-
-    def update(self, x):
-        x = np.array(x)
-        self.n += 1
-        if self.n == 1:
-            self.mean = x
-            self.std = x
-        else:
-            old_mean = self.mean.copy()
-            self.mean = old_mean + (x - old_mean) / self.n
-            self.S = self.S + (x - old_mean) * (x - self.mean)
-            self.std = np.sqrt(self.S / self.n)
-
-
-class Normalization:
-    """状态标准化"""
-    def __init__(self, shape):
-        self.running_ms = RunningMeanStd(shape=shape)
-
-    def __call__(self, x, update=True):
-        # Whether to update the mean and std,during the evaluating,update=Flase
-        if update:
-            self.running_ms.update(x)
-        x = (x - self.running_ms.mean) / (self.running_ms.std + 1e-8)
-
-        return x
-
-
-class RewardScaling:
-    """奖励标准化"""
-    def __init__(self, shape, gamma):
-        self.shape = shape  # reward shape=1
-        self.gamma = gamma  # discount factor
-        self.running_ms = RunningMeanStd(shape=self.shape)
-        self.R = np.zeros(self.shape)
-
-    def __call__(self, x):
-        self.R = self.gamma * self.R + x
-        self.running_ms.update(self.R)
-        x = x / (self.running_ms.std + 1e-8)  # Only divided std
-        return x
-
-    def reset(self):  # When an episode is done,we should reset 'self.R'
-        self.R = np.zeros(self.shape)
-
-
 def train_ppo(train_files,
               val_files,
               agent,
@@ -75,21 +21,15 @@ def train_ppo(train_files,
               state_channel,
               state_size,
               norm_method,
-              state_norm,
-              reward_norm,
-              gamma,
               epochs,
               num_workers,
               step_max,
-              step_limit_max,
               num_episodes,
               state_mode,
               reward_mode,
-              out_mode,
               out_reward_mode,
               train_certain,
               val_certain,
-              val_update,
               train_spot_type,
               val_spot_type,
               device,
@@ -145,10 +85,6 @@ def train_ppo(train_files,
     # 记录得到最佳评价指标的轮次
     best_dice_epoch = -1
 
-    # 初始化状态和奖励的标准化方法
-    state_normalizer = Normalization(state_size)
-    reward_normalizer = RewardScaling(1, gamma)
-
     # 开始训练
     for epoch in range(max_epochs):
         agent.train()  # 网络设置为训练模式
@@ -173,10 +109,8 @@ def train_ppo(train_files,
                           state_channel,
                           state_size,
                           step_max,
-                          step_limit_max,
                           state_mode,
                           reward_mode,
-                          out_mode,
                           out_reward_mode)  # 初始化环境
                 for _ in range(num_episodes):
                     episode_return = 0  # 记录一个序列的总回报
@@ -187,18 +121,13 @@ def train_ppo(train_files,
                                        'rewards': [],
                                        'dones': []}
                     state = env.reset(spot_type=train_spot_type)  # 每个序列训练前先进行初始化操作
-                    reward_normalizer.reset()  # 每个序列初始化奖励标准化方法
                     done = False
                     while not done:
-                        if state_norm:  # 采用状态标准化
-                            state = state_normalizer(state)
                         if train_certain:  # 采用确定性训练策略
                             action = agent.take_certain_action(state)
                         else:
                             action = agent.take_action(state)
                         next_state, reward, done = env.step(action)
-                        if reward_norm:  # 采用奖励标准化
-                            reward = reward_normalizer(reward)
                         transition_dict['states'].append(state)
                         transition_dict['actions'].append(action)
                         transition_dict['next_states'].append(next_state)
@@ -251,16 +180,12 @@ def train_ppo(train_files,
                           state_channel,
                           state_size,
                           step_max,
-                          step_limit_max,
                           state_mode,
                           reward_mode,
-                          out_mode,
                           out_reward_mode)  # 初始化环境
                 state = env.reset(spot_type=val_spot_type)
                 done = False
                 while not done:
-                    if state_norm:  # 验证时采用状态标准化
-                        state = state_normalizer(state, update=False)
                     if val_certain:  # 采用确定性验证策略
                         action = agent.take_certain_action(state)
                     else:
@@ -274,19 +199,10 @@ def train_ppo(train_files,
             val_length /= n_val  # 计算验证集平均序列长度
             val_dice /= n_val  # 计算验证集平均dice
             # 保存模型
-            if val_update:  # 如果需要验证后才更新参数
-                if val_dice > best_dice:
-                    best_dice = val_dice
-                    best_dice_epoch = epoch + 1
-                    agent.save_model()
-                    agent.real_to_temp()
-                else:
-                    agent.temp_to_real()
-            else:
-                if val_dice > best_dice:
-                    best_dice = val_dice
-                    best_dice_epoch = epoch + 1
-                    agent.save_model()
+            if val_dice > best_dice:
+                best_dice = val_dice
+                best_dice_epoch = epoch + 1
+                agent.save_model()
 
         # 记录验证集log
         logging.info(f'''

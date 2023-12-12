@@ -72,10 +72,10 @@ if __name__ == '__main__':
 
     """必要参数设置"""
     # 训练编号
-    id = '3'
+    id = '0'
 
     # 设置GPU
-    GPU_id = '3'
+    GPU_id = '0'
     os.environ["CUDA_VISIBLE_DEVICES"] = GPU_id
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device {device}\n')
@@ -92,10 +92,10 @@ if __name__ == '__main__':
     train_files, val_files = divide_dataset(json_path)
 
     # 算法选择，可选ppo,ppo_step,sac,d3qn
-    algo = 'ppo'
+    algo = 'ppo_step'
 
     # 环境选择，可选CTEnv,CTEnvStep
-    Env = CTEnv
+    Env = CTEnvStep
 
     # 设置模型保存路径
     valueNet_path = f'/workspace/data/rl/model/{algo}_value{date_time}{id}.pth'
@@ -114,46 +114,35 @@ if __name__ == '__main__':
 
     """公用参数设置"""
     lr_decay = [1, 0]  # 学习率衰减（线性衰减）范围
-
     optimizer = 'AdamW'  # 优化器选用，可选：Adam, AdamW
     adam_eps = 1e-5  # adam优化器限制值
-
     gamma = 0.98  # 价值估计倍率
-
-    state_norm = False  # 是否使用状态标准化
-    reward_norm = False  # 是否使用奖励标准化
 
     amp = True  # 是否使用混合精度训练和推断加速
     comp = True  # 是否使用编译加速
 
-    action_num = 6  # 动作个数，可选6，7(增加回到起点)
+    action_num = 7  # 动作个数，可选6，7(增加回到起点)
     state_channel = 3  # 状态图通道数，可选2，3
     state_size = [21, 21, 9]  # 状态图大小
     norm_method = 'norm'  # 状态图归一化方法，可选：min_max, norm
+    state_mode = 'pre'  # 状态模式，可选：pre(先标注再返回状态), post(返回状态后再标注)
+    reward_mode = 'dice_inc_const'  # 奖励模式，可选：dice_inc, const, dice_inc_const
+    out_reward_mode = 'small'  # 出边界奖励模式，可选：small, large, 0
+    train_spot_type = 'edge_spot'  # 设置训练起点类型，可选random_spot，max_prob_spot，edge_spot
+    val_spot_type = 'edge_spot'  # 设置验证起点类型，可选random_spot，max_prob_spot，edge_spot
 
     epochs = 100  # 总循环次数
     num_workers = 0  # 数据加载线程数
     step_max = 5000  # 序列最大长度
-    step_limit_max = 5000  # 限制无新标注的探索步数
     num_episodes = 1  # 每张图训练序列数
     agent_epochs = 10  # 每个序列梯度下降迭代次数
     total_steps = (epochs * len(train_files) * num_episodes *
                    agent_epochs)  # 计算梯度下降迭代总步数，后续进行学习率衰减使用
 
-    state_mode = 'pre'  # 状态模式，可选：pre(先标注再返回状态), post(返回状态后再标注)
-    reward_mode = 'dice_inc_const'  # 奖励模式，可选：dice_inc, const, dice_inc_const
-    out_mode = False  # 出边界是否停止，True则停止
-    out_reward_mode = 'small'  # 出边界奖励模式，可选：small, large, 0
-
     train_certain = False  # 是否在训练时采用确定性策略，False代表采用随机采样策略
     val_certain = False  # 是否在验证时采用确定性策略，False代表采用随机采样策略
 
-    val_update = False  # 是否经过验证集后才真正更新网络参数
-
-    train_spot_type = 'edge_spot'  # 设置训练起点类型，可选random_spot，max_prob_spot，edge_spot
-    val_spot_type = 'edge_spot'  # 设置验证起点类型，可选random_spot，max_prob_spot，edge_spot
-
-    net_name = ['PolicyNet', 'ValueNet']  # 网络选择，需要根据不同强化学习算法选择一个或两个网络
+    net_name = ['PolicyNetStep2', 'ValueNetStep2']  # 网络选择，需要根据不同强化学习算法选择一个或两个网络
     OI = True  # 是否使用正交初始化
 
     # 策略网络
@@ -204,10 +193,9 @@ if __name__ == '__main__':
     # PPO算法
     if algo == "ppo" or algo == "ppo_step":
         actor_lr = 1e-4  # 策略函数初始学习率
-        critic_lr = 1e-4  # 价值函数初始学习率
+        critic_lr = 1e-3  # 价值函数初始学习率
         lmbda = 0.95  # 优势估计倍率
         adv_norm = True  # 是否进行优势估计标准化
-        batch_size = 0  # 若使用minibatch方式进行更新，则需设置为非0值
         eps = 0.2  # ppo算法限制值
         entropy_coef = 0.01  # 策略熵系数，可设置为0
 
@@ -223,7 +211,7 @@ if __name__ == '__main__':
     # SAC算法
     if algo == "sac":
         actor_lr = 1e-4  # 策略函数初始学习率
-        critic_lr = 1e-4  # 价值函数初始学习率
+        critic_lr = 1e-3  # 价值函数初始学习率
         alpha_lr = 1e-4  # 熵初始学习率
         tau = 0.005  # 软更新参数
         target_entropy = -1  # 目标熵
@@ -235,71 +223,74 @@ if __name__ == '__main__':
     # PPO算法
     if algo == 'ppo_step' or algo == 'ppo':
         logging.info(f'''
-        net_name = {net_name}  OI = {OI}
+        环境参数：
         json_path = {json_path}
-        GPU_id = {GPU_id}
-        actor_lr = {actor_lr}  critic_lr = {critic_lr}
-        lr_decay = {lr_decay}
-        optimizer = {optimizer}  adam_eps = {adam_eps}
-        epochs = {epochs}  agent_epochs = {agent_epochs}
-        batch_size = {batch_size}
-        adv_norm = {adv_norm}  entropy_coef = {entropy_coef}
-        amp = {amp}  comp = {comp}
-        step_max = {step_max}  step_limit_max = {step_limit_max}
-        num_episodes = {num_episodes}
-        action_num = {action_num}
         state_channel = {state_channel}  state_size = {state_size}
         norm_method = {norm_method}
-        state_mode = {state_mode}  state_norm = {state_norm}
-        reward_mode = {reward_mode}  reward_norm = {reward_norm}
-        out_mode = {out_mode}  out_reward_mode = {out_reward_mode}
-        train_certain = {train_certain}
-        val_certain = {val_certain}  val_update = {val_update}
-        train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}''')
+        step_max = {step_max}  action_num = {action_num}
+        state_mode = {state_mode}
+        reward_mode = {reward_mode}
+        out_reward_mode = {out_reward_mode}
+        train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}
+        算法参数：
+        net_name = {net_name}  OI = {OI}
+        adv_norm = {adv_norm}  entropy_coef = {entropy_coef}
+        train_certain = {train_certain}  val_certain = {val_certain}
+        训练参数：
+        actor_lr = {actor_lr}  critic_lr = {critic_lr}  lr_decay = {lr_decay}
+        optimizer = {optimizer}  adam_eps = {adam_eps}
+        epochs = {epochs}  num_episodes = {num_episodes}  agent_epochs = {agent_epochs}
+        amp = {amp}  comp = {comp}''')
 
     # D3QN算法
     if algo == 'd3qn':
         logging.info(f'''
-        net_name = {net_name}  OI = {OI}
+        环境参数：
         json_path = {json_path}
-        GPU_id = {GPU_id}
-        lr = {learning_rate}
-        adam_eps = {adam_eps}
+        state_channel = {state_channel}  state_size = {state_size}
+        norm_method = {norm_method}
+        step_max = {step_max}  action_num = {action_num}
+        state_mode = {state_mode}
+        reward_mode = {reward_mode}
+        out_reward_mode = {out_reward_mode}
+        train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}
+        算法参数：
+        net_name = {net_name}  OI = {OI}
         epsilon = {epsilon}
         target_update = {target_update}
         buffer_size = {buffer_size}  minimal_size = {minimal_size}
         batch_size = {batch_size}
-        epochs = {epochs}  agent_epochs = {agent_epochs}
-        step_max = {step_max}  step_limit_max = {step_limit_max}
-        num_episodes = {num_episodes}
-        action_num = {action_num}
-        state_channel = {state_channel}  state_size = {state_size}
-        state_mode = {state_mode}
-        reward_mode = {reward_mode}
-        out_mode = {out_mode}  out_reward_mode = {out_reward_mode}
-        train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}''')
+        train_certain = {train_certain}  val_certain = {val_certain}
+        训练参数：
+        lr = {learning_rate}  lr_decay = {lr_decay}
+        optimizer = {optimizer}  adam_eps = {adam_eps}
+        epochs = {epochs}  num_episodes = {num_episodes}  agent_epochs = {agent_epochs}
+        amp = {amp}  comp = {comp}''')
 
     # SAC算法
     if algo == 'sac':
         logging.info(f'''
-        net_name = {net_name}  OI = {OI}
+        环境参数：
         json_path = {json_path}
-        GPU_id = {GPU_id}
-        actor_lr = {actor_lr}  critic_lr = {critic_lr}  alpha_lr = {alpha_lr}
-        adam_eps = {adam_eps}
+        state_channel = {state_channel}  state_size = {state_size}
+        norm_method = {norm_method}
+        step_max = {step_max}  action_num = {action_num}
+        state_mode = {state_mode}
+        reward_mode = {reward_mode}
+        out_reward_mode = {out_reward_mode}
+        train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}
+        算法参数：
+        net_name = {net_name}  OI = {OI}
         tau = {tau}
         target_entropy = {target_entropy}
         buffer_size = {buffer_size}  minimal_size = {minimal_size}
         batch_size = {batch_size}
-        epochs = {epochs}  agent_epochs = {agent_epochs}
-        step_max = {step_max}  step_limit_max = {step_limit_max}
-        num_episodes = {num_episodes}
-        action_num = {action_num}
-        state_channel = {state_channel}  state_size = {state_size}
-        state_mode = {state_mode}
-        reward_mode = {reward_mode}
-        out_mode = {out_mode}  out_reward_mode = {out_reward_mode}
-        train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}''')
+        train_certain = {train_certain}  val_certain = {val_certain}
+        训练参数：
+        actor_lr = {actor_lr}  critic_lr = {critic_lr}  alpha_lr = {alpha_lr}
+        optimizer = {optimizer}  adam_eps = {adam_eps}
+        epochs = {epochs}  num_episodes = {num_episodes}  agent_epochs = {agent_epochs}
+        amp = {amp}  comp = {comp}''')
 
     """训练"""
     # PPO算法
@@ -314,7 +305,6 @@ if __name__ == '__main__':
                     adam_eps=adam_eps,
                     lmbda=lmbda,
                     agent_epochs=agent_epochs,
-                    batch_size=batch_size,
                     eps=eps,
                     entropy_coef=entropy_coef,
                     gamma=gamma,
@@ -324,7 +314,6 @@ if __name__ == '__main__':
                     device=device,
                     valueNet_path=valueNet_path,
                     policyNet_path=policyNet_path,
-                    val_update=val_update,
                     )
         train_ppo(train_files=train_files,
                   val_files=val_files,
@@ -333,21 +322,15 @@ if __name__ == '__main__':
                   state_channel=state_channel,
                   state_size=state_size,
                   norm_method=norm_method,
-                  state_norm=state_norm,
-                  reward_norm=reward_norm,
-                  gamma=gamma,
                   epochs=epochs,
                   num_workers=num_workers,
                   step_max=step_max,
-                  step_limit_max=step_limit_max,
                   num_episodes=num_episodes,
                   state_mode=state_mode,
                   reward_mode=reward_mode,
-                  out_mode=out_mode,
                   out_reward_mode=out_reward_mode,
                   train_certain=train_certain,
                   val_certain=val_certain,
-                  val_update=val_update,
                   train_spot_type=train_spot_type,
                   val_spot_type=val_spot_type,
                   device=device,
@@ -364,7 +347,6 @@ if __name__ == '__main__':
                         adam_eps=adam_eps,
                         lmbda=lmbda,
                         agent_epochs=agent_epochs,
-                        batch_size=batch_size,
                         eps=eps,
                         entropy_coef=entropy_coef,
                         gamma=gamma,
@@ -381,14 +363,13 @@ if __name__ == '__main__':
                        Env=Env,
                        state_channel=state_channel,
                        state_size=state_size,
+                       norm_method=norm_method,
                        epochs=epochs,
                        num_workers=num_workers,
                        step_max=step_max,
-                       step_limit_max=step_limit_max,
                        num_episodes=num_episodes,
                        state_mode=state_mode,
                        reward_mode=reward_mode,
-                       out_mode=out_mode,
                        out_reward_mode=out_reward_mode,
                        train_certain=train_certain,
                        val_certain=val_certain,
@@ -422,11 +403,9 @@ if __name__ == '__main__':
                    epochs=epochs,
                    num_workers=num_workers,
                    step_max=step_max,
-                   step_limit_max=step_limit_max,
                    num_episodes=num_episodes,
                    state_mode=state_mode,
                    reward_mode=reward_mode,
-                   out_mode=out_mode,
                    out_reward_mode=out_reward_mode,
                    train_spot_type=train_spot_type,
                    val_spot_type=val_spot_type,
@@ -461,11 +440,9 @@ if __name__ == '__main__':
                   epochs=epochs,
                   num_workers=num_workers,
                   step_max=step_max,
-                  step_limit_max=step_limit_max,
                   num_episodes=num_episodes,
                   state_mode=state_mode,
                   reward_mode=reward_mode,
-                  out_mode=out_mode,
                   out_reward_mode=out_reward_mode,
                   train_spot_type=train_spot_type,
                   val_spot_type=val_spot_type,
