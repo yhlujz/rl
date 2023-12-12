@@ -234,6 +234,8 @@ if __name__ == '__main__':
         train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}
         算法参数：
         net_name = {net_name}  OI = {OI}
+        gamma = {gamma}
+        lmbda = {lmbda}  eps = {eps}
         adv_norm = {adv_norm}  entropy_coef = {entropy_coef}
         train_certain = {train_certain}  val_certain = {val_certain}
         训练参数：
@@ -256,6 +258,7 @@ if __name__ == '__main__':
         train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}
         算法参数：
         net_name = {net_name}  OI = {OI}
+        gamma = {gamma}
         epsilon = {epsilon}
         target_update = {target_update}
         buffer_size = {buffer_size}  minimal_size = {minimal_size}
@@ -281,6 +284,7 @@ if __name__ == '__main__':
         train_spot_type = {train_spot_type}  val_spot_type = {val_spot_type}
         算法参数：
         net_name = {net_name}  OI = {OI}
+        gamma = {gamma}
         tau = {tau}
         target_entropy = {target_entropy}
         buffer_size = {buffer_size}  minimal_size = {minimal_size}
