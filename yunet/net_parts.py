@@ -8,6 +8,34 @@ def orthogonal_init(layer, gain=1.0):
     nn.init.constant_(layer.bias, 0)
 
 
+class BigConv(nn.Module):
+    """大卷积"""
+
+    def __init__(self,  in_channels, out_channels):
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv3d(in_channels, out_channels, kernel_size=5, padding=2),
+            nn.Tanh()
+        )
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+class BigDown(nn.Module):
+    """下采样，最大池化+大卷积"""
+
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.maxpool_conv = nn.Sequential(
+            nn.MaxPool3d(2),
+            BigConv(in_channels, out_channels)
+        )
+
+    def forward(self, x):
+        return self.maxpool_conv(x)
+
+
 class DoubleConv(nn.Module):
     """双层卷积，(3*3*3卷积+tanh)*2"""
 

@@ -15,18 +15,22 @@ from yualgo import PPO, PPOStep, D3QN, SAC
 # 导入网络
 from yunet import (
     PolicyNet,
+    PolicyNetBig,
     PolicyNetLight,
     PolicyNet2,
     PolicyResNet,
     PolicyNetStep,
     PolicyNetStep2,
+    PolicyNetStepBig,
     PolicyNetStepGelu,
     ValueNet,
+    ValueNetBig,
     ValueNetLight,
     ValueNet2,
     ValueResNet,
     ValueNetStep,
     ValueNetStep2,
+    ValueNetStepBig,
     ValueNetStepGelu,
     QNet,
     QNet2,
@@ -149,6 +153,8 @@ if __name__ == '__main__':
     # 策略网络
     if 'PolicyNet' in net_name:
         policy_net = PolicyNet(action_num, state_channel, OI).to(device)
+    if 'PolicyNetBig' in net_name:
+        policy_net = PolicyNetBig(action_num, state_channel, OI).to(device)
     if 'PolicyNetLight' in net_name:
         policy_net = PolicyNetLight(action_num, state_channel, OI).to(device)
     if 'PolicyNet2' in net_name:
@@ -159,12 +165,16 @@ if __name__ == '__main__':
         policy_net = PolicyNetStep(action_num, state_channel, OI).to(device)
     if 'PolicyNetStep2' in net_name:
         policy_net = PolicyNetStep2(action_num, state_channel, OI).to(device)
+    if 'PolicyNetStepBig' in net_name:
+        policy_net = PolicyNetStepBig(action_num, state_channel, OI).to(device)
     if 'PolicyNetStepGelu' in net_name:
         policy_net = PolicyNetStepGelu(action_num, state_channel, OI).to(device)
 
     # 价值网络
     if 'ValueNet' in net_name:
         value_net = ValueNet(state_channel, OI).to(device)
+    if 'ValueNetBig' in net_name:
+        value_net = ValueNetBig(state_channel, OI).to(device)
     if 'ValueNetLight' in net_name:
         value_net = ValueNetLight(state_channel, OI).to(device)
     if 'ValueNet2' in net_name:
@@ -175,6 +185,8 @@ if __name__ == '__main__':
         value_net = ValueNetStep(state_channel, OI).to(device)
     if 'ValueNetStep2' in net_name:
         value_net = ValueNetStep2(state_channel, OI).to(device)
+    if 'ValueNetStepBig' in net_name:
+        value_net = ValueNetStepBig(state_channel, OI).to(device)
     if 'ValueNetStepGelu' in net_name:
         value_net = ValueNetStepGelu(state_channel, OI).to(device)
 
