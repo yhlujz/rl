@@ -202,10 +202,14 @@ class PPOPredict:
     def __init__(self,
                  policy_net,
                  amp,
+                 comp,
                  device,
                  ):
         self.device = device
-        self.actor = policy_net.to(self.device)
+        if comp:
+            self.actor = torch.compile(policy_net, mode='max-autotune').to(self.device)
+        else:
+            self.actor = policy_net.to(self.device)
         self.amp = amp
 
     def take_action(self, state):

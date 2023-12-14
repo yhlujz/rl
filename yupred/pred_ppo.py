@@ -1,5 +1,4 @@
 import torch
-
 from monai.transforms import (
     Compose,
     LoadImaged,
@@ -17,14 +16,14 @@ from monai.data import CacheDataset, DataLoader, decollate_batch
 def pred_ppo(test_files,
              agent,
              Env,
+             action_num,
+             state_num,
              state_size,
              norm_method,
              num_workers,
              step_max,
-             step_limit_max,
              state_mode,
              reward_mode,
-             out_mode,
              out_reward_mode,
              val_certain,
              val_spot_type,
@@ -93,6 +92,9 @@ def pred_ppo(test_files,
     test_ds = CacheDataset(data=test_files, transform=transforms, cache_rate=1.0, num_workers=num_workers)
     test_loader = DataLoader(test_ds, batch_size=1, num_workers=num_workers)
 
+    # 记录测试集平均dice值
+    test_dice = 0
+
     # 开始预测
     with torch.no_grad():
         for test_data in test_loader:
@@ -106,15 +108,17 @@ def pred_ppo(test_files,
                       masks[0],
                       preds[0],
                       probs[0][1],
+                      action_num,
+                      state_num,
                       state_size,
                       step_max,
-                      step_limit_max,
                       state_mode,
                       reward_mode,
-                      out_mode,
                       out_reward_mode)  # 初始化环境
             state = env.reset(spot_type=val_spot_type)
             done = False
+            best_cover = 0  # 保存最佳预测结果
+            best_dice = 0  # 记录最佳dice值
             while not done:
                 if val_certain:  # 采用确定性验证策略
                     action = agent.take_certain_action(state)
@@ -122,5 +126,10 @@ def pred_ppo(test_files,
                     action = agent.take_action(state)
                 next_state, _, done = env.step(action)
                 state = next_state
-            test_data["output"] = env.to_pred().unsqueeze(0)
+                if env.cover > best_cover:
+                    best_cover = env.cover
+                    best_dice = env.dice
+                    test_data["output"] = env.to_pred().unsqueeze(0)
+            test_dice += best_dice
             _ = [post_transforms(i) for i in decollate_batch(test_data)]
+        print(f"Test Dice: {test_dice / len(test_loader):.4f}")

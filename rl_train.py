@@ -121,8 +121,9 @@ if __name__ == '__main__':
     amp = True  # 是否使用混合精度训练和推断加速
     comp = True  # 是否使用编译加速
 
-    action_num = 7  # 动作个数，可选6，7(增加回到起点)
-    state_channel = 3  # 状态图通道数，可选2，3
+    action_num = 6  # 动作个数，可选6，7(增加回到起点)，26，27(增加回到起点)
+    state_num = [0, 1, 2]  # 状态图包含的图像，0image，1pred，2prob，3preded
+    state_channel = len(state_num)  # 状态图通道数
     state_size = [21, 21, 9]  # 状态图大小
     norm_method = 'norm'  # 状态图归一化方法，可选：min_max, norm
     state_mode = 'pre'  # 状态模式，可选：pre(先标注再返回状态), post(返回状态后再标注)
@@ -225,7 +226,7 @@ if __name__ == '__main__':
         logging.info(f'''
         环境参数：
         json_path = {json_path}
-        state_channel = {state_channel}  state_size = {state_size}
+        state_num = {state_num}  state_size = {state_size}
         norm_method = {norm_method}
         step_max = {step_max}  action_num = {action_num}
         state_mode = {state_mode}
@@ -249,7 +250,7 @@ if __name__ == '__main__':
         logging.info(f'''
         环境参数：
         json_path = {json_path}
-        state_channel = {state_channel}  state_size = {state_size}
+        state_num = {state_num}  state_size = {state_size}
         norm_method = {norm_method}
         step_max = {step_max}  action_num = {action_num}
         state_mode = {state_mode}
@@ -275,7 +276,7 @@ if __name__ == '__main__':
         logging.info(f'''
         环境参数：
         json_path = {json_path}
-        state_channel = {state_channel}  state_size = {state_size}
+        state_num = {state_num}  state_size = {state_size}
         norm_method = {norm_method}
         step_max = {step_max}  action_num = {action_num}
         state_mode = {state_mode}
@@ -323,7 +324,8 @@ if __name__ == '__main__':
                   val_files=val_files,
                   agent=agent,
                   Env=Env,
-                  state_channel=state_channel,
+                  action_num=action_num,
+                  state_num=state_num,
                   state_size=state_size,
                   norm_method=norm_method,
                   epochs=epochs,
@@ -365,7 +367,8 @@ if __name__ == '__main__':
                        val_files=val_files,
                        agent=agent,
                        Env=Env,
-                       state_channel=state_channel,
+                       action_num=action_num,
+                       state_num=state_num,
                        state_size=state_size,
                        norm_method=norm_method,
                        epochs=epochs,
@@ -402,7 +405,8 @@ if __name__ == '__main__':
                    minimal_size=minimal_size,
                    batch_size=batch_size,
                    agent_epochs=agent_epochs,
-                   state_channel=state_channel,
+                   action_num=action_num,
+                   state_num=state_num,
                    state_size=state_size,
                    epochs=epochs,
                    num_workers=num_workers,
@@ -439,7 +443,8 @@ if __name__ == '__main__':
                   minimal_size=minimal_size,
                   batch_size=batch_size,
                   agent_epochs=agent_epochs,
-                  state_channel=state_channel,
+                  action_num=action_num,
+                  state_num=state_num,
                   state_size=state_size,
                   epochs=epochs,
                   num_workers=num_workers,

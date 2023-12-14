@@ -11,7 +11,8 @@ class CTEnvStep:
                  mask,
                  preded,
                  prob,
-                 state_channel,
+                 action_num,
+                 state_num,
                  state_size,
                  step_max,
                  state_mode,
@@ -23,7 +24,8 @@ class CTEnvStep:
         self.preded = preded.int()  # 初始化已预测图像
         self.prob = prob  # 初始化概率图
 
-        self.state_channel = state_channel  # 初始化状态图通道数
+        self.action_num = action_num  # 初始化动作个数
+        self.state_num = state_num  # 初始化状态图通道选择
         self.state_size = state_size  # 初始化状态图大小
         self.step_max = step_max  # 限制最大步数
         self.state_mode = state_mode  # 设置状态返回模式
@@ -112,21 +114,38 @@ class CTEnvStep:
         image_state = self.image_padding[l_side:r_side, u_side:d_side, f_side:b_side]
         pred_state = self.pred_padding[l_side:r_side, u_side:d_side, f_side:b_side]
         prob_state = self.prob_padding[l_side:r_side, u_side:d_side, f_side:b_side]
-        if self.state_channel == 3:
-            state = torch.stack((image_state, prob_state, pred_state), dim=0)
-        elif self.state_channel == 2:
-            state = torch.stack((image_state, pred_state), dim=0)
-        else:
-            print("state_channel is error!")
+        preded_state = self.preded_padding[l_side:r_side, u_side:d_side, f_side:b_side]
+        state_list = np.array([image_state, pred_state, prob_state, preded_state])
+        state = torch.stack(state_list[self.state_num], dim=0)
         return np.array(state.cpu())  # 将状态图转换为numpy格式
+
+    def action_to_spot(self, action):
+        """将动作转换为点坐标"""
+        if self.action_num <= 7:
+            if action == 6:
+                self.spot = self.edge_spot
+            else:
+                change = [[1, 0, 0], [-1, 0, 0], [0, 1, 0],
+                          [0, -1, 0], [0, 0, 1], [0, 0, -1]]
+                self.spot = [x + y for x, y in zip(self.spot, change[action])]  # 将动作叠加到位置
+        else:
+            if action == 26:
+                self.spot = self.edge_spot
+            else:
+                change = [[0, 0, 1], [0, 0, -1],
+                          [0, 1, 0], [0, 1, 1], [0, 1, -1],
+                          [0, -1, 0], [0, -1, 1], [0, -1, -1],
+                          [1, 0, 0], [1, 0, 1], [1, 0, -1],
+                          [1, 1, 0], [1, 1, 1], [1, 1, -1],
+                          [1, -1, 0], [1, -1, 1], [1, -1, -1],
+                          [-1, 0, 0], [-1, 0, 1], [-1, 0, -1],
+                          [-1, 1, 0], [-1, 1, 1], [-1, 1, -1],
+                          [-1, -1, 0], [-1, -1, 1], [-1, -1, -1]]
+                self.spot = [x + y for x, y in zip(self.spot, change[action])]  # 将动作叠加到位置
 
     def step(self, action):
         """智能体完成一个动作，并返回下一个状态、奖励和完成情况"""
-        if action == 6:
-            self.spot = self.edge_spot
-        else:
-            change = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
-            self.spot = [x + y for x, y in zip(self.spot, change[action])]  # 将动作叠加到位置
+        self.action_to_spot(action)
         self.step_n += 1  # 步数累积
         done = False  # 默认为未完成
         # 如果超出边界
