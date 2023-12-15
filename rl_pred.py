@@ -13,11 +13,13 @@ from yualgo import PPOPredict, PPOStepPredict
 # 导入网络
 from yunet import (
     PolicyNet,
+    PolicyNetBig,
     PolicyNetLight,
     PolicyNet2,
     PolicyResNet,
     PolicyNetStep,
     PolicyNetStep2,
+    PolicyNetStepBig,
     PolicyNetStepGelu,
 )
 
@@ -79,6 +81,9 @@ if __name__ == '__main__':
     # 预测数据保存路径
     output_path = f'/workspace/data/rl/output6/{algo}{id}'
 
+    # 模型读取路径
+    policyNet_path = f'/workspace/data/rl/model/{algo}_policy{id}.pth'
+
     """公用参数设置"""
     amp = True  # 是否使用混合精度训练和推断加速
     comp = True  # 是否使用编译加速
@@ -103,6 +108,8 @@ if __name__ == '__main__':
 
     if 'PolicyNet' in net_name:
         policy_net = PolicyNet(action_num, state_channel, OI).to(device)
+    if 'PolicyNetBig' in net_name:
+        policy_net = PolicyNetBig(action_num, state_channel, OI).to(device)
     if 'PolicyNetLight' in net_name:
         policy_net = PolicyNetLight(action_num, state_channel, OI).to(device)
     if 'PolicyNet2' in net_name:
@@ -113,14 +120,10 @@ if __name__ == '__main__':
         policy_net = PolicyNetStep(action_num, state_channel, OI).to(device)
     if 'PolicyNetStep2' in net_name:
         policy_net = PolicyNetStep2(action_num, state_channel, OI).to(device)
+    if 'PolicyNetStepBig' in net_name:
+        policy_net = PolicyNetStepBig(action_num, state_channel, OI).to(device)
     if 'PolicyNetStepGelu' in net_name:
         policy_net = PolicyNetStepGelu(action_num, state_channel, OI).to(device)
-
-    """特定参数设置"""
-    # PPO算法模型加载
-    if algo == "ppo" or algo == "ppo_step":
-        policyNet_path = f'/workspace/data/rl/model/{algo}_policy{id}.pth'
-        policy_net.load_state_dict(torch.load(policyNet_path, map_location=device))
 
     """预测"""
     if algo == 'ppo':
@@ -129,6 +132,7 @@ if __name__ == '__main__':
             amp=amp,
             comp=comp,
             device=device,
+            policyNet_path=policyNet_path,
         )
         pred_ppo(
             test_files=test_files,
@@ -155,6 +159,7 @@ if __name__ == '__main__':
             amp=amp,
             comp=comp,
             device=device,
+            policyNet_path=policyNet_path,
         )
         pred_ppo_step(
             test_files=test_files,
