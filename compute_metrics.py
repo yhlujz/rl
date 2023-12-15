@@ -291,7 +291,7 @@ def compute_nii_metrics(stage, masks, preds):
     return metrics_d
 
 
-def compute_single_metrics(root_path):
+def compute_single_metrics(root_path, id):
     ''' 计算单个标注的指标 '''
 
     stage = 'artery'
@@ -301,11 +301,11 @@ def compute_single_metrics(root_path):
     for _, row in df.iterrows():
         if row['dataset'] == 'test':
             masks.append(row['mask_path'])
-    preds = sorted(glob.glob(os.path.join(root_path, "output6", "*.nii.gz")))
+    preds = sorted(glob.glob(os.path.join(root_path, "output6", id, "*.nii.gz")))
     metrics_d = compute_nii_metrics(stage, masks, preds)
 
     # 生成统计值
-    excel_path = os.path.join(root_path, "metrics", "artery.xlsx")
+    excel_path = os.path.join(root_path, "metrics", f"{id}_artery.xlsx")
     df = metrics_d.describe().loc[['mean', 'std']].T.apply(lambda x: round(x, 3))
     df['mean'] = df['mean'].astype(str)
     df['std'] = df['std'].astype(str)
@@ -313,7 +313,7 @@ def compute_single_metrics(root_path):
     df.to_excel(excel_path)  # 生成excel
 
     # 生成排序值
-    excel_path = os.path.join(root_path, "metrics", "artery_all.xlsx")
+    excel_path = os.path.join(root_path, "metrics", f"{id}_artery_all.xlsx")
     metrics_d.to_excel(excel_path)  # 生成excel
 
 
@@ -321,5 +321,7 @@ if __name__ == '__main__':
 
     # 要测试的项目目录
     root_path = '/workspace/data/rl'
+    # 任务名称
+    id = 'ppo_step12120'
 
-    compute_single_metrics(root_path)
+    compute_single_metrics(root_path, id)
