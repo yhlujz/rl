@@ -89,7 +89,7 @@ if __name__ == '__main__':
     comp = True  # 是否使用编译加速
 
     action_num = 6  # 动作个数，可选6，7(增加回到起点)，26，27(增加回到起点)
-    state_num = [0, 1, 2]  # 状态图包含的图像，0image，1pred，2prob，3preded
+    state_num = [0, 2, 3]  # 状态图包含的图像，0image，1preded，2prob，3pred
     state_channel = len(state_num)  # 状态图通道数
     state_size = [21, 21, 9]  # 状态图大小
     norm_method = 'norm'  # 归一化方法，可选：min_max, norm

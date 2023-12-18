@@ -115,7 +115,7 @@ class CTEnv:
         pred_state = self.pred_padding[l_side:r_side, u_side:d_side, f_side:b_side]
         prob_state = self.prob_padding[l_side:r_side, u_side:d_side, f_side:b_side]
         preded_state = self.preded_padding[l_side:r_side, u_side:d_side, f_side:b_side]
-        state_list = [image_state, pred_state, prob_state, preded_state]
+        state_list = [image_state, preded_state, prob_state, pred_state]
         state = torch.stack([state_list[i] for i in self.state_num], dim=0)
         return np.array(state.cpu())  # 将状态图转换为numpy格式
 
