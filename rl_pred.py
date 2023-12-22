@@ -56,7 +56,7 @@ if __name__ == '__main__':
 
     """必要参数设置"""
     # 设置GPU
-    GPU_id = '7'
+    GPU_id = '0'
     os.environ["CUDA_VISIBLE_DEVICES"] = GPU_id
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device {device}\n')
@@ -73,7 +73,7 @@ if __name__ == '__main__':
     algo = 'ppo_step'
 
     # 环境选择，可选CTEnv,CTEnvStep
-    Env = CTEnv
+    Env = CTEnvStep
 
     # 模型编号
     id = '11095'
@@ -102,6 +102,7 @@ if __name__ == '__main__':
     step_max = 5000  # 序列最大长度
 
     val_certain = False  # 是否在验证时采用确定性策略，False代表采用随机采样策略
+    choose_best = False  # 是否根据已预测标注选择保存最佳结果
 
     net_name = ['PolicyNetStep']  # 网络选择，需要根据不同强化学习算法选择一个或两个网络
     OI = True  # 是否使用正交初始化
@@ -148,6 +149,7 @@ if __name__ == '__main__':
             reward_mode=reward_mode,
             out_reward_mode=out_reward_mode,
             val_certain=val_certain,
+            choose_best=choose_best,
             val_spot_type=val_spot_type,
             device=device,
             output_path=output_path,
@@ -175,6 +177,7 @@ if __name__ == '__main__':
             reward_mode=reward_mode,
             out_reward_mode=out_reward_mode,
             val_certain=val_certain,
+            choose_best=choose_best,
             val_spot_type=val_spot_type,
             device=device,
             output_path=output_path,

@@ -26,6 +26,7 @@ def pred_ppo_step(test_files,
                   reward_mode,
                   out_reward_mode,
                   val_certain,
+                  choose_best,
                   val_spot_type,
                   device,
                   output_path,
@@ -128,10 +129,16 @@ def pred_ppo_step(test_files,
                 state = next_state
                 cover = next_cover
                 step = next_step
-                if env.cover > best_cover:
-                    best_cover = env.cover
-                    best_dice = env.dice
-                    test_data["output"] = env.to_pred().unsqueeze(0)
-            test_dice += best_dice
-            _ = [post_transforms(i) for i in decollate_batch(test_data)]
+                if choose_best:
+                    if env.cover > best_cover:
+                        best_cover = env.cover
+                        best_dice = env.dice
+                        test_data["output"] = env.to_pred().unsqueeze(0)
+                        _ = [post_transforms(i) for i in decollate_batch(test_data)]
+            if choose_best:
+                test_dice += best_dice
+            else:
+                test_dice += env.dice
+                test_data["output"] = env.to_pred().unsqueeze(0)
+                _ = [post_transforms(i) for i in decollate_batch(test_data)]
         print(f"Test Dice: {test_dice / len(test_loader):.4f}")

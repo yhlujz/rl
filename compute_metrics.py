@@ -305,7 +305,7 @@ def compute_single_metrics(root_path, id):
     metrics_d = compute_nii_metrics(stage, masks, preds)
 
     # 生成统计值
-    excel_path = os.path.join(root_path, "metrics", f"{id}_artery.xlsx")
+    excel_path = os.path.join(root_path, "metrics", f"{id}_avg.xlsx")
     df = metrics_d.describe().loc[['mean', 'std']].T.apply(lambda x: round(x, 3))
     df['mean'] = df['mean'].astype(str)
     df['std'] = df['std'].astype(str)
@@ -313,7 +313,7 @@ def compute_single_metrics(root_path, id):
     df.to_excel(excel_path)  # 生成excel
 
     # 生成排序值
-    excel_path = os.path.join(root_path, "metrics", f"{id}_artery_all.xlsx")
+    excel_path = os.path.join(root_path, "metrics", f"{id}_sep.xlsx")
     metrics_d.to_excel(excel_path)  # 生成excel
 
 
@@ -322,6 +322,6 @@ if __name__ == '__main__':
     # 要测试的项目目录
     root_path = '/workspace/data/rl'
     # 任务名称
-    id = 'ppo_step12120'
+    id = 'ppo_step11277'
 
     compute_single_metrics(root_path, id)
